@@ -179,7 +179,10 @@ it("honors Oxlint inline suppression and never autofixes files", (t) => {
   assert.equal(fs.readFileSync(path.join(p.root, "Child.tsx"), "utf8"), leaf);
 });
 
-RuleTester.describe = describe;
+// Oxlint's RuleTester needs Node 22+; the CLI tests above still cover Node 20.
+const ruleTesterSkip =
+  Number(process.versions.node.split(".")[0]) < 22 && "Oxlint RuleTester requires Node 22+";
+RuleTester.describe = (name, fn) => describe(name, { skip: ruleTesterSkip }, fn);
 RuleTester.it = it;
 const testerProject = fixture(flat);
 process.on("exit", () => testerProject.cleanup());

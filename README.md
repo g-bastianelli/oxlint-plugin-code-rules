@@ -128,6 +128,8 @@ Un test crée aussi l'archive, l'installe dans un projet temporaire et charge le
 plugin par son nom de package.
 
 La CI GitHub Actions exécute tests, lint et format sur Node 20, 22 et 24.
+Le `RuleTester` d'Oxlint exige Node 22 ; sous Node 20, sa suite est ignorée et
+seuls les tests avec le binaire réel s'exécutent.
 
 ### Publication
 
