@@ -1,0 +1,50 @@
+{
+  "name": "oxlint-plugin-code-rules",
+  "version": "0.1.0",
+  "description": "Explicit code organization rules for Oxlint.",
+  "keywords": [
+    "code-organization",
+    "lint",
+    "oxlint",
+    "oxlint-plugin",
+    "react"
+  ],
+  "homepage": "https://github.com/g-bastianelli/oxlint-plugin-code-rules#readme",
+  "bugs": {
+    "url": "https://github.com/g-bastianelli/oxlint-plugin-code-rules/issues"
+  },
+  "license": "MIT",
+  "author": "Guillaume Bastianelli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/g-bastianelli/oxlint-plugin-code-rules.git"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@oxlint/plugins": "1.86.0",
+    "oxc-parser": "0.152.0",
+    "oxc-resolver": "11.24.2"
+  },
+  "devDependencies": {
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0"
+  },
+  "peerDependencies": {
+    "oxlint": "^1.85.0"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}

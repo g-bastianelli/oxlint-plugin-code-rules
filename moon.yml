@@ -1,0 +1,15 @@
+tasks:
+  test:
+    command: node --test test/*.test.js
+    options:
+      cache: false
+  benchmark:
+    command: node bench/run.js
+    options:
+      cache: false
+  lint:
+    command: node_modules/.bin/oxlint src test bench
+  format:
+    command: node_modules/.bin/oxfmt --check src test bench README.md package.json
+  format-write:
+    command: node_modules/.bin/oxfmt src test bench README.md package.json
