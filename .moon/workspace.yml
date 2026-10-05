@@ -1,0 +1,5 @@
+projects:
+  code-rules: .
+vcs:
+  client: git
+  defaultBranch: main
