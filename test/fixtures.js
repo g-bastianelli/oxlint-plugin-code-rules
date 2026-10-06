@@ -13,6 +13,13 @@ const categories = Object.fromEntries(
   ),
 );
 
+const graphRules = new Set([
+  "component-ownership",
+  "module-ownership",
+  "test-colocation",
+  "no-deep-import",
+]);
+
 export function fixture(files, manifest = {}, tsconfig = {}, rules = ["component-ownership"]) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "code-rules-")));
   const root = path.join(directory, "src");
@@ -27,7 +34,14 @@ export function fixture(files, manifest = {}, tsconfig = {}, rules = ["component
     JSON.stringify({
       ...base,
       jsPlugins: [{ name: "code-rules", specifier: plugin }],
-      rules: Object.fromEntries(rules.map((rule) => [`code-rules/${rule}`, ["warn", { root }]])),
+      rules: Object.fromEntries(
+        Array.isArray(rules)
+          ? rules.map((rule) => [
+              `code-rules/${rule}`,
+              graphRules.has(rule) ? ["warn", { root }] : "warn",
+            ])
+          : Object.entries(rules).map(([rule, config]) => [`code-rules/${rule}`, config]),
+      ),
     }),
   );
   return {
@@ -83,4 +97,17 @@ export function branchedTree(name, misplaced = false) {
       `import { SharedBadge } from ${JSON.stringify(relative.startsWith(".") ? relative : `./${relative}`)}; export function View() { return <SharedBadge/>; }`;
   }
   return files;
+}
+
+export function lintDiagnostics(t, files, rules, manifest = {}, tsconfig = {}) {
+  const project = fixture(files, manifest, tsconfig, rules);
+  t.after(project.cleanup);
+  // Oxlint lints files in parallel, so diagnostics arrive in any order.
+  return lint(project)
+    .diagnostics.map((diagnostic) => ({
+      rule: diagnostic.code.replace(/^code-rules\(|\)$/g, ""),
+      file: diagnostic.filename.replace(/^src\//, ""),
+      message: diagnostic.message,
+    }))
+    .sort((a, b) => a.file.localeCompare(b.file) || a.rule.localeCompare(b.rule));
 }

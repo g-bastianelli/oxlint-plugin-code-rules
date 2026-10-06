@@ -2,25 +2,14 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
-import { fixture, lint } from "./fixtures.js";
+import { fixture, lint, lintDiagnostics } from "./fixtures.js";
 
 const rules = ["component-ownership", "module-ownership", "test-colocation"];
 const orders =
   'import { useOrders } from "./useOrders"; export function Orders() { useOrders(); return <ul/>; }';
 const hook = "export function useOrders() { return []; }";
 
-function check(t, files) {
-  const project = fixture(files, {}, {}, rules);
-  t.after(project.cleanup);
-  // Oxlint lints files in parallel, so diagnostics arrive in any order.
-  return lint(project)
-    .diagnostics.map((diagnostic) => ({
-      rule: diagnostic.code.replace(/^code-rules\(|\)$/g, ""),
-      file: diagnostic.filename.replace(/^src\//, ""),
-      message: diagnostic.message,
-    }))
-    .sort((a, b) => a.file.localeCompare(b.file) || a.rule.localeCompare(b.rule));
-}
+const check = (t, files) => lintDiagnostics(t, files, rules);
 
 it("places a private hook under its only component", (t) => {
   assert.deepEqual(check(t, { "Orders.tsx": orders, "useOrders.ts": hook }), [
