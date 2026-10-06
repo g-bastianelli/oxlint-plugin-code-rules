@@ -4,7 +4,7 @@ import { moduleOwnership } from "./rules/module-ownership.js";
 import { testColocation } from "./rules/test-colocation.js";
 
 export default eslintCompatPlugin({
-  meta: { name: "code-rules", version: "0.2.0" },
+  meta: { name: "code-rules", version: "0.3.0" },
   rules: {
     "component-ownership": componentOwnership,
     "module-ownership": moduleOwnership,
