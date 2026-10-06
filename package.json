@@ -1,6 +1,6 @@
 {
   "name": "oxlint-plugin-code-rules",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Import-graph ownership rules for Oxlint: components, modules and tests live under their owner.",
   "keywords": [
     "architecture",

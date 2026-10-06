@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0
+
+### Ajouts
+
+- `no-deep-import` : un dossier composant avec une entrée, ou un dossier en
+  minuscules dont l'`index` réexporte depuis le dossier, s'importe par cette
+  entrée ; l'import, la réexportation ou l'`import()` qui entre dans ses autres
+  fichiers est signalé, en nommant le dossier le plus englobant à franchir.
+- `declarative-entry` : un `index.ts` sans flux de contrôle, appel ni `await` au
+  chargement ; l'`index` racine d'un package sans `exports` est un programme et
+  n'est pas vérifié.
+- `no-nested-jsx-map` : pas de `.map` dans le rappel d'un `.map` en JSX rendu.
+- `no-catch-all-module` : pas de module nommé `utils`, `helpers`, `misc`, `common`,
+  seul ou en suffixe ; options `names` et `allow`.
+- `no-enum` : pas d'`enum`, `const enum` compris.
+
+### Changements
+
+- La détection de racine et la lecture des manifestes sont partagées entre toutes
+  les règles (`src/locate.js`).
+
 ## 0.3.0
 
 ### Ajouts
