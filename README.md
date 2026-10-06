@@ -61,6 +61,27 @@ Le graphe découpe la racine en **unités** :
   aucune suggestion. Les routes par convention de fichiers n'ont donc pas
   besoin de configuration particulière.
 
+Les dossiers **kebab-case** (`command-palette/`, `data-access/`, ou un seul
+mot comme `reorder/`) définissent des frontières de regroupement sans liste de
+configuration. Le nom doit commencer par une lettre minuscule et ne contenir
+que des lettres minuscules, chiffres et tirets séparant des segments non vides.
+Les dossiers **PascalCase** désignent les composants et restent soumis à
+l'appartenance, même lorsqu'ils possèdent déjà leur propre dossier.
+
+La frontière la plus proche s'applique à chaque fichier. Un consommateur
+extérieur compte comme un consommateur à la racine de ce regroupement : il ne
+fait pas déplacer la fonctionnalité chez lui. Un fichier enfoui utilisé depuis
+l'extérieur doit cependant remonter à cette racine. À l'intérieur, les enfants,
+hooks et types privés restent contrôlés, à toute profondeur ; les tests restent
+colocalisés avec leur sujet, même à travers une frontière. Un point d'entrée du
+regroupement n'entraîne jamais le déplacement du regroupement entier.
+
+Cette convention exprime une décision architecturale par le nom : elle ne prouve
+pas la cohérence métier du dossier. Un hook dans `data-access/` consommé depuis
+une autre fonctionnalité reste donc dans `data-access/`. Un hook privé placé à
+la racine de sa fonctionnalité est, lui, rapproché de son composant consommateur.
+Renommer un dossier en kebab-case change cette interprétation.
+
 L'emplacement attendu d'un fichier est l'ancêtre commun le plus proche des
 dossiers de ses propriétaires :
 

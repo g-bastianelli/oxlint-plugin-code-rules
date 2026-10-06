@@ -104,17 +104,14 @@ it("treats an encapsulated lowercase folder as the owner of its private modules"
   );
 });
 
-it("never moves the index of a folder reached by deep imports", (t) => {
+it("keeps externally consumed modules at their grouping boundary", (t) => {
   const diagnostics = check(t, {
     "Page/index.tsx":
       'import { a } from "../helpers"; import { b } from "../helpers/b"; export function Page() { return <i>{a}{b}</i>; }',
     "helpers/index.ts": "export const a = 1;",
     "helpers/b.ts": "export const b = 2;",
   });
-  assert.deepEqual(
-    diagnostics.map(({ file }) => file),
-    ["helpers/b.ts"],
-  );
+  assert.deepEqual(diagnostics, []);
 });
 
 it("checks component folders and accepts named entries nested in their owner", (t) => {
@@ -268,5 +265,75 @@ it("never suspends the analysis on type-only links to declaration files", (t) =>
   assert.deepEqual(
     diagnostics.map(({ rule, file }) => [rule, file]),
     [["module-ownership", "useOrders.ts"]],
+  );
+});
+
+it("preserves a kebab-case feature mounted by another feature", (t) => {
+  assert.deepEqual(
+    check(t, {
+      "shell/Workspace/index.tsx":
+        'import { Palette } from "../../command-palette/Palette"; export function Workspace() { return <Palette/>; }',
+      "command-palette/Palette/index.tsx": "export function Palette() { return <aside/>; }",
+    }),
+    [],
+  );
+});
+
+it("checks private components, hooks and types inside a feature", (t) => {
+  const diagnostics = check(t, {
+    "command-palette/Palette/index.tsx":
+      'import { Row } from "../Row"; export function Palette() { return <Row/>; }',
+    "command-palette/Row/index.tsx":
+      'import { useSearch } from "../use-search"; import type { Item } from "../item.types"; export function Row(_: { item?: Item }) { useSearch(); return <span/>; }',
+    "command-palette/use-search.ts": "export function useSearch() { return []; }",
+    "command-palette/item.types.ts": "export type Item = { id: string };",
+  });
+  assert.equal(diagnostics.length, 3);
+  assert.match(
+    diagnostics.find(({ file }) => file.endsWith("Row/index.tsx")).message,
+    /under command-palette\/Palette\//,
+  );
+  for (const file of ["use-search.ts", "item.types.ts"])
+    assert.match(
+      diagnostics.find((diagnostic) => diagnostic.file.endsWith(file)).message,
+      /under command-palette\/Row\//,
+    );
+});
+
+it("hoists cross-boundary dependencies to the grouping root instead of outside it", (t) => {
+  const diagnostics = check(t, {
+    "shell/Page/index.tsx":
+      'import { Shared } from "../../feature/Inner/Shared"; export function Page() { return <Shared/>; }',
+    "feature/Inner/index.tsx":
+      'import { Shared } from "./Shared"; export function Inner() { return <Shared/>; }',
+    "feature/Inner/Shared.tsx": "export function Shared() { return <span/>; }",
+  });
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0].message, /under feature\//);
+});
+
+it("preserves nested kebab-case groups and still checks their private descendants", (t) => {
+  const diagnostics = check(t, {
+    "feature/Editor/index.tsx":
+      'import { Row } from "./condition-clauses/Row"; export function Editor() { return <Row/>; }',
+    "feature/Editor/condition-clauses/Row/index.tsx":
+      'import { value } from "../value"; export function Row() { return <span>{value}</span>; }',
+    "feature/Editor/condition-clauses/value.ts": "export const value = 1;",
+  });
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0].message, /under feature\/Editor\/condition-clauses\/Row\//);
+});
+
+it("preserves lowercase module entry folders without disabling test colocation", (t) => {
+  const diagnostics = check(t, {
+    "Page/index.tsx":
+      'import { value } from "../data-access"; export function Page() { return <span>{value}</span>; }',
+    "data-access/index.ts": "export const value = 1;",
+    "index.test.ts": 'import { value } from "./data-access"; value;',
+    "data-access.test.ts": 'import { value } from "./data-access"; value;',
+  });
+  assert.deepEqual(
+    diagnostics.map(({ rule, file }) => [rule, file]),
+    [["test-colocation", "data-access.test.ts"]],
   );
 });

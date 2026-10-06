@@ -122,6 +122,15 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
       new Set([...candidates].filter((consumer) => units.get(consumer).kind !== "test")),
     );
   }
+  const boundaries = new Map([[root, undefined]]);
+  function boundaryOf(directory) {
+    if (boundaries.has(directory)) return boundaries.get(directory);
+    const boundary = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(path.basename(directory))
+      ? directory
+      : boundaryOf(path.dirname(directory));
+    boundaries.set(directory, boundary);
+    return boundary;
+  }
   const suggestions = new Map();
   const cyclic = cyclicFiles(owners);
   if (!problem) {
@@ -130,7 +139,12 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
       if (pinned.has(filename) || cyclic.has(filename) || consumers.size === 0) continue;
       // Root entries and index files of plain grouping folders have no unit to move.
       if (unit.entry ? path.dirname(filename) === root : unit.name === "index") continue;
-      const directories = [...consumers].map(ownerDirectory);
+      const boundary = boundaryOf(path.dirname(filename));
+      // Group names establish boundaries; imports only infer ownership within them.
+      if (unit.entry && unit.folder === boundary) continue;
+      const directories = [...consumers].map((consumer) =>
+        boundary && !isInside(boundary, consumer) ? boundary : ownerDirectory(consumer),
+      );
       if (directories.includes(undefined)) continue;
       const expected = commonDirectory(directories);
       if (unit.location === expected || !isInside(root, expected)) continue;
