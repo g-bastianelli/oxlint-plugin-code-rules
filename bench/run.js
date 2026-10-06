@@ -8,6 +8,11 @@ const project = fixture(files, {}, {}, [
   "component-ownership",
   "module-ownership",
   "test-colocation",
+  "no-deep-import",
+  "declarative-entry",
+  "no-nested-jsx-map",
+  "no-catch-all-module",
+  "no-enum",
 ]);
 try {
   const samples = { base: [], custom: [] };
@@ -25,7 +30,16 @@ try {
   const result = {
     files: 6400,
     componentLevels: 6,
-    rules: ["component-ownership", "module-ownership", "test-colocation"],
+    rules: [
+      "component-ownership",
+      "module-ownership",
+      "test-colocation",
+      "no-deep-import",
+      "declarative-entry",
+      "no-nested-jsx-map",
+      "no-catch-all-module",
+      "no-enum",
+    ],
     samples,
     medians,
     overheadMs: medians.custom - medians.base,

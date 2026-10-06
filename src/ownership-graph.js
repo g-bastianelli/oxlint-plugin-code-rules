@@ -16,6 +16,8 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
   const valueConsumers = new Map(files.map((filename) => [filename, new Set()]));
   const typeConsumers = new Map(files.map((filename) => [filename, new Set()]));
   const imports = new Map(files.map((filename) => [filename, new Set()]));
+  const requests = new Map(files.map((filename) => [filename, new Map()]));
+  const reexports = new Map(files.map((filename) => [filename, new Set()]));
   const pinned = publicFiles(root, files);
   const typeExports = new Set();
   const resolver = new ResolverFactory({
@@ -47,6 +49,9 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
         if (!entry.moduleRequest) continue;
         const target = resolve(filename, entry.moduleRequest.value, entry.isType);
         if (target) (entry.isType ? typeExports : pinned).add(target);
+        if (!valueConsumers.has(target)) continue;
+        requests.get(filename).set(entry.moduleRequest.value, target);
+        reexports.get(filename).add(target);
       }
     }
     // Only materialize the AST when ESM summaries cannot describe the import target.
@@ -86,6 +91,27 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
     }
   }
   const units = new Map(files.map((filename) => [filename, unitOf(filename)]));
+  // A component folder is a façade; a lowercase folder is one when its entry re-exports from
+  // inside the folder. Reaching the other files of a façade from outside is a deep import.
+  const entryFolders = new Map();
+  for (const [filename, unit] of units) {
+    if (!unit.entry || unit.folder === root) continue;
+    const facade =
+      unit.kind === "component" ||
+      [...reexports.get(filename)].some((target) => isInside(unit.folder, target));
+    if (facade) entryFolders.set(unit.folder, filename);
+  }
+  const deepImports = new Map();
+  for (const [importer, targets] of requests) {
+    if (units.get(importer).kind === "test") continue;
+    for (const [specifier, target] of targets) {
+      if (units.get(target).kind === "test") continue;
+      const found = deepImport(importer, target);
+      if (!found) continue;
+      if (!deepImports.has(importer)) deepImports.set(importer, new Map());
+      deepImports.get(importer).set(specifier, found);
+    }
+  }
   // Component naming marks a unit; other folders must be reached only through their entry.
   const moduleEntries = new Map();
   for (const [filename, unit] of units)
@@ -163,7 +189,27 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
       suggestions.set(filename, suggestion(unit, expected, subjects));
     }
   }
-  return { suggestions, sources, problem };
+  return { suggestions, deepImports, sources, problem };
+
+  // The outermost entry folder around the target that does not contain the importer.
+  function deepImport(importer, target) {
+    const unit = units.get(target);
+    let found;
+    for (
+      let directory = unit.entry ? path.dirname(unit.folder) : path.dirname(target);
+      directory !== root && isInside(root, directory);
+      directory = path.dirname(directory)
+    ) {
+      const entry = entryFolders.get(directory);
+      if (entry && !isInside(directory, importer)) found = { folder: directory, entry };
+    }
+    if (!found) return undefined;
+    return {
+      folder: `${portable(path.relative(root, found.folder))}/`,
+      entry: portable(path.relative(root, found.entry)),
+      target: portable(path.relative(root, target)),
+    };
+  }
 
   function suggestion(unit, expected, consumers) {
     const list = [...consumers].map((file) => portable(path.relative(root, file))).sort();
@@ -250,6 +296,7 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
   function addImport(filename, specifier, typeOnly) {
     const target = resolve(filename, specifier, typeOnly);
     if (!valueConsumers.has(target)) return;
+    requests.get(filename).set(specifier, target);
     imports.get(filename).add(target);
     (typeOnly ? typeConsumers : valueConsumers).get(target).add(filename);
   }

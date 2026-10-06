@@ -3,15 +3,21 @@
 [![CI](https://github.com/g-bastianelli/oxlint-plugin-code-rules/actions/workflows/ci.yml/badge.svg)](https://github.com/g-bastianelli/oxlint-plugin-code-rules/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/oxlint-plugin-code-rules)](https://www.npmjs.com/package/oxlint-plugin-code-rules)
 
-Règles explicites d'organisation du code pour Oxlint, fondées sur le graphe
-d'imports : chaque fichier vit sous son propriétaire, et le code partagé à
-l'ancêtre commun le plus proche de ses consommateurs.
+Règles explicites d'organisation du code pour Oxlint. Trois règles fondées sur le
+graphe d'imports placent chaque fichier sous son propriétaire et le code partagé
+à l'ancêtre commun le plus proche de ses consommateurs ; cinq règles de structure
+tiennent les façades, les points d'entrée et le nommage.
 
-| Règle                            | Cible                                        |
-| -------------------------------- | -------------------------------------------- |
-| `code-rules/component-ownership` | Composants PascalCase et dossiers composants |
-| `code-rules/module-ownership`    | Hooks, types, helpers et dossiers de modules |
-| `code-rules/test-colocation`     | Tests et stories                             |
+| Règle                            | Cible                                                   |
+| -------------------------------- | ------------------------------------------------------- |
+| `code-rules/component-ownership` | Composants PascalCase et dossiers composants            |
+| `code-rules/module-ownership`    | Hooks, types, helpers et dossiers de modules            |
+| `code-rules/test-colocation`     | Tests et stories                                        |
+| `code-rules/no-deep-import`      | Imports qui contournent l'entrée d'un dossier           |
+| `code-rules/declarative-entry`   | `index.ts` sans flux de contrôle ni effet au chargement |
+| `code-rules/no-nested-jsx-map`   | `.map` imbriqué dans un `.map` en JSX                   |
+| `code-rules/no-catch-all-module` | Fichiers `utils`, `helpers`, `misc`, `common`           |
+| `code-rules/no-enum`             | Déclarations `enum`                                     |
 
 ## Configuration
 
@@ -30,7 +36,12 @@ Puis, dans la configuration Oxlint :
   "rules": {
     "code-rules/component-ownership": "warn",
     "code-rules/module-ownership": "warn",
-    "code-rules/test-colocation": "warn"
+    "code-rules/test-colocation": "warn",
+    "code-rules/no-deep-import": "warn",
+    "code-rules/declarative-entry": "warn",
+    "code-rules/no-nested-jsx-map": "warn",
+    "code-rules/no-catch-all-module": "warn",
+    "code-rules/no-enum": "warn"
   }
 }
 ```
@@ -152,6 +163,49 @@ même nom (`useOrders.test.ts` → `useOrders.ts`, `user.service.test.ts` →
 `user.service.ts`, `Orders/index.test.tsx` → `Orders/`). Le test peut vivre dans
 le dossier du sujet ou dans l'un de ces sous-dossiers de support. Sans sujet
 unique, aucune déduction.
+
+## no-deep-import
+
+Un dossier composant avec une entrée (`Orders/index.tsx`, `Orders/Orders.tsx`),
+ou un dossier en minuscules dont l'`index` réexporte depuis le dossier, est une
+façade : depuis l'extérieur, on l'importe par cette entrée, jamais par ses autres
+fichiers. Un `index` qui ne réexporte rien, comme la route `/` d'un dossier
+`routes/`, n'en fait pas une façade. La règle signale l'import, la réexportation ou l'`import()` littéral qui
+entre dans un tel dossier, et nomme le dossier **le plus englobant** à franchir :
+`main.ts` qui importe `orders/parsing/codec.ts` doit passer par `orders/index.ts`.
+Les descendants du dossier, les tests, les fichiers de support de test derrière
+la façade et les dossiers sans entrée ne sont pas concernés. Entre packages, les sous-chemins de `package.json#exports` jouent ce
+rôle ; cette règle l'applique à l'intérieur d'un package. Un dossier percé est
+traité par `module-ownership` comme un simple regroupement : corriger ses imports
+profonds le rend à nouveau propriétaire de son contenu.
+
+## declarative-entry
+
+Un `index.ts` (`.mts`, `.js`, `.mjs`) se limite à des imports, des réexportations
+nommées et des compositions déclaratives (`export const router = createRouter(…)`).
+La règle signale tout `if`, `switch`, `try`, `throw` ou boucle, où qu'il soit dans
+le fichier, ainsi que les appels et `await` au niveau du module. Les `index.tsx`
+de composants ne sont pas concernés. L'`index` racine d'un package **sans
+`exports`** est le programme lui-même, pas une façade : il n'est pas vérifié.
+
+## no-nested-jsx-map
+
+Dans du JSX rendu, un `.map` (ou `.flatMap`) à l'intérieur du rappel d'un autre
+`.map` est signalé : la liste intérieure devient son propre composant. Deux
+listes voisines, ou une liste calculée hors JSX, ne sont pas concernées.
+
+## no-catch-all-module
+
+Un fichier nommé `utils`, `util`, `helpers`, `helper`, `misc` ou `common`, seul ou
+en suffixe (`string-helpers.ts`), est signalé : un module porte le nom de sa seule
+responsabilité. Options : `names` remplace la liste, `allow` énumère des fins de
+chemin tolérées (`["lib/utils.ts"]` pour le fichier généré par shadcn). Les tests
+suivent leur sujet et ne sont pas signalés.
+
+## no-enum
+
+Toute déclaration `enum`, `const enum` compris, est signalée : préférer une union
+de littéraux.
 
 ## Résolution et limites
 
