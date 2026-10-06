@@ -127,7 +127,11 @@ conditionnels (`node`, `import`) et les imports dynamiques à chaîne littérale
 sont résolus avec Oxc. Les spécificateurs à protocole (`node:`, `bun:`,
 `cloudflare:`, `virtual:`) sont externes. Les fichiers réexportés et les cibles
 source de `package.json#exports` sont protégés. Les fichiers impliqués dans un
-cycle d'appartenance ne reçoivent pas de suggestion.
+cycle d'appartenance ne reçoivent pas de suggestion. Un `export type` protège
+un module de types, mais pas le composant qui déclare ces types. Les liens de
+type non résolus (fichiers `.d.ts`, packages sans code) ne suspendent pas
+l'analyse. Un `index.*` à la racine câble le package sans posséder ce qu'il
+importe.
 
 Si le graphe ne peut être établi (erreur de parsing, import de code non résolu,
 import dynamique calculé, `require` ou appel `import.meta` calculé), chaque règle
