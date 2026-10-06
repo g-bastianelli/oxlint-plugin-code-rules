@@ -28,9 +28,9 @@ Puis, dans la configuration Oxlint :
 {
   "jsPlugins": [{ "name": "code-rules", "specifier": "oxlint-plugin-code-rules" }],
   "rules": {
-    "code-rules/component-ownership": ["warn", { "root": "src" }],
-    "code-rules/module-ownership": ["warn", { "root": "src" }],
-    "code-rules/test-colocation": ["warn", { "root": "src" }]
+    "code-rules/component-ownership": "warn",
+    "code-rules/module-ownership": "warn",
+    "code-rules/test-colocation": "warn"
   }
 }
 ```
@@ -38,12 +38,15 @@ Puis, dans la configuration Oxlint :
 Chaque règle s'active séparément ; aucune ne l'est implicitement. Activées
 ensemble, elles partagent un seul graphe par racine.
 
-`root` est obligatoire et relatif au répertoire de travail du linter ; un chemin
-absolu est également accepté. Choisir une racine contenant **tous les consommateurs**
-du périmètre étudié, généralement le `src` d'un package. Les consommateurs hors de
-cette racine ne sont pas découverts. Dans un monorepo, configurer chaque package
-séparément. Les exclusions de diagnostic Oxlint ne réduisent pas le graphe : un
-fichier ignoré peut toujours consommer un module.
+Sans option, chaque fichier est analysé dans le `src/` du package le plus proche
+(celui dont le `package.json` est le premier ancêtre), ou dans le package
+lui-même s'il n'a pas de `src/`. La racine d'un workspace (`package.json` avec
+`workspaces`) sans `src/` n'est pas analysée. Une seule configuration couvre
+donc un monorepo ; les fichiers hors de ce `src/` ne sont pas analysés. L'option
+`{ "root": "src" }` fixe explicitement la racine, relative au répertoire de
+travail du linter ou absolue. Choisir une racine contenant **tous les
+consommateurs** du périmètre étudié. Les exclusions de diagnostic Oxlint ne
+réduisent pas le graphe : un fichier ignoré peut toujours consommer un module.
 
 ## Modèle d'appartenance
 
@@ -61,10 +64,11 @@ Le graphe découpe la racine en **unités** :
   aucune suggestion. Les routes par convention de fichiers n'ont donc pas
   besoin de configuration particulière.
 
-Les dossiers **kebab-case** (`command-palette/`, `data-access/`, ou un seul
-mot comme `reorder/`) définissent des frontières de regroupement sans liste de
-configuration. Le nom doit commencer par une lettre minuscule et ne contenir
-que des lettres minuscules, chiffres et tirets séparant des segments non vides.
+Les dossiers **kebab-case** (`command-palette/`, `data-access/`, un seul mot
+comme `reorder/`, ou préfixés par `_` comme `_shared/`) définissent des
+frontières de regroupement sans liste de configuration. Le nom, après un `_`
+optionnel, doit commencer par une lettre minuscule et ne contenir que des
+lettres minuscules, chiffres et tirets séparant des segments non vides.
 Les dossiers **PascalCase** désignent les composants et restent soumis à
 l'appartenance, même lorsqu'ils possèdent déjà leur propre dossier.
 
@@ -81,6 +85,10 @@ pas la cohérence métier du dossier. Un hook dans `data-access/` consommé depu
 une autre fonctionnalité reste donc dans `data-access/`. Un hook privé placé à
 la racine de sa fonctionnalité est, lui, rapproché de son composant consommateur.
 Renommer un dossier en kebab-case change cette interprétation.
+
+Les dossiers de support de test (`__tests__/`, `__fixtures__/`, `__mocks__/`,
+`__snapshots__/`) sont hors du modèle d'appartenance : leur contenu n'est ni
+propriétaire ni déplacé, seule sa colocalisation est vérifiée.
 
 L'emplacement attendu d'un fichier est l'ancêtre commun le plus proche des
 dossiers de ses propriétaires :
@@ -115,8 +123,10 @@ Orders/
 
 Les règles ne demandent pas de créer un `index.tsx`, ne déplacent aucun fichier
 et ne réécrivent aucun import. Elles utilisent les imports comme indication
-d'appartenance, sans prétendre déterminer les frontières métier. Une chaîne à
-plat peut demander plusieurs passes : déplacer le propriétaire modifie
+d'appartenance, sans prétendre déterminer les frontières métier. Chaque message
+nomme le fichier, l'emplacement attendu et ses consommateurs ; au-delà de quatre,
+il en cite trois et compte les autres. Une chaîne à plat peut demander plusieurs
+passes : déplacer le propriétaire modifie
 l'emplacement de ses enfants. Les tests couvrent cinq niveaux de convergence
 et six niveaux de branches, dont des composants partagés à un ancêtre
 intermédiaire.
@@ -135,11 +145,13 @@ déplacé. Le diagnostic est ancré sur la première instruction.
 
 ## test-colocation
 
-Signale un fichier `*.test.*`, `*.spec.*`, `*.stories.*` ou situé sous
-`__tests__/` qui n'est pas à côté de son sujet. Le sujet est le module importé
-portant le même nom (`useOrders.test.ts` → `useOrders.ts`,
-`Orders/index.test.tsx` → `Orders/`). Le test peut vivre dans le dossier du
-sujet ou dans son sous-dossier `__tests__/`. Sans sujet unique, aucune déduction.
+Signale un fichier `*.test.*`, `*.spec.*`, `*.e2e.*`, `*.bench.*`, `*.stories.*`
+ou situé sous `__tests__/`, `__fixtures__/`, `__mocks__/` ou `__snapshots__/`
+qui n'est pas à côté de son sujet. Le sujet est le module importé portant le
+même nom (`useOrders.test.ts` → `useOrders.ts`, `user.service.test.ts` →
+`user.service.ts`, `Orders/index.test.tsx` → `Orders/`). Le test peut vivre dans
+le dossier du sujet ou dans l'un de ces sous-dossiers de support. Sans sujet
+unique, aucune déduction.
 
 ## Résolution et limites
 
@@ -173,7 +185,7 @@ imports calculés ou les formes non-ESM.
 Le cache est partagé pendant un lot synchrone. Entre les lots, les métadonnées
 des fichiers, dossiers et configurations JSON ancêtres sont revérifiées ; seules
 leurs modifications entraînent un nouveau parsing. Une modification du texte
-courant invalide également le graphe. Le cache est borné à huit racines.
+courant invalide également le graphe. Le cache est borné à 64 racines.
 Il n'y a ni watcher permanent ni cache disque. Le texte courant fourni
 par Oxlint est pris en compte ; les autres fichiers sont lus sur disque.
 Les modifications non enregistrées dans d'autres buffers d'éditeur ne sont donc

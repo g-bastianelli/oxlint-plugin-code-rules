@@ -13,7 +13,6 @@ export function ownershipRule({ name, kind, files, description, placement, ancho
         {
           type: "object",
           properties: { root: { type: "string", minLength: 1 } },
-          required: ["root"],
           additionalProperties: false,
         },
       ],
@@ -65,7 +64,7 @@ let last;
 
 function locate(context) {
   const { cwd, filename: raw } = context;
-  const option = context.options[0].root;
+  const option = context.options[0]?.root;
   const text = context.sourceCode.text;
   if (
     last?.raw === raw &&
@@ -75,9 +74,40 @@ function locate(context) {
     (!last.entry || last.entry.validated)
   )
     return last;
-  const root = fs.realpathSync.native(path.resolve(cwd, option));
   const filename = fs.existsSync(raw) ? fs.realpathSync.native(raw) : path.resolve(raw);
-  const entry = isInside(root, filename) ? ownershipGraph(root, filename, text) : undefined;
+  const root = option ? fs.realpathSync.native(path.resolve(cwd, option)) : packageRoot(filename);
+  const entry = root && isInside(root, filename) ? ownershipGraph(root, filename, text) : undefined;
   last = { raw, cwd, option, text, filename, entry };
   return last;
+}
+
+// Without `root`, a file belongs to the `src/` of its nearest package, or to the package itself.
+const packageRoots = new Map();
+
+function packageRoot(filename) {
+  const directory = path.dirname(filename);
+  if (!packageRoots.has(directory)) {
+    let root;
+    for (let current = directory; ; current = path.dirname(current)) {
+      const manifest = path.join(current, "package.json");
+      if (fs.existsSync(manifest)) {
+        const src = path.join(current, "src");
+        // A workspace root without src/ is not a package to analyze: members carry their own.
+        if (fs.statSync(src, { throwIfNoEntry: false })?.isDirectory()) root = src;
+        else if (!readManifest(manifest).workspaces) root = current;
+        break;
+      }
+      if (path.dirname(current) === current) break;
+    }
+    packageRoots.set(directory, root);
+  }
+  return packageRoots.get(directory);
+}
+
+function readManifest(manifest) {
+  try {
+    return JSON.parse(fs.readFileSync(manifest, "utf8")) ?? {};
+  } catch {
+    return {};
+  }
 }

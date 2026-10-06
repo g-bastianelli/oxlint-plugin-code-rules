@@ -5,7 +5,8 @@ import { parseSync } from "oxc-parser";
 import { ResolverFactory } from "oxc-resolver";
 import { isInside, publicFiles, sourceFiles } from "./source-files.js";
 
-const testPattern = /\.(?:test|spec|stories)\.[cm]?[jt]sx?$/;
+const testPattern = /\.(?:test|spec|stories|e2e|bench)\.[cm]?[jt]sx?$/;
+const supportDirectories = new Set(["__tests__", "__fixtures__", "__mocks__", "__snapshots__"]);
 
 export function buildOwnershipGraph(root, overrides = new Map()) {
   const files = sourceFiles(root);
@@ -122,15 +123,7 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
       new Set([...candidates].filter((consumer) => units.get(consumer).kind !== "test")),
     );
   }
-  const boundaries = new Map([[root, undefined]]);
-  function boundaryOf(directory) {
-    if (boundaries.has(directory)) return boundaries.get(directory);
-    const boundary = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(path.basename(directory))
-      ? directory
-      : boundaryOf(path.dirname(directory));
-    boundaries.set(directory, boundary);
-    return boundary;
-  }
+  const boundaries = new Map();
   const suggestions = new Map();
   const cyclic = cyclicFiles(owners);
   if (!problem) {
@@ -139,12 +132,15 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
       if (pinned.has(filename) || cyclic.has(filename) || consumers.size === 0) continue;
       // Root entries and index files of plain grouping folders have no unit to move.
       if (unit.entry ? path.dirname(filename) === root : unit.name === "index") continue;
-      const boundary = boundaryOf(path.dirname(filename));
+      const boundary = groupingBoundary(path.dirname(filename), root, boundaries);
       // Group names establish boundaries; imports only infer ownership within them.
       if (unit.entry && unit.folder === boundary) continue;
-      const directories = [...consumers].map((consumer) =>
-        boundary && !isInside(boundary, consumer) ? boundary : ownerDirectory(consumer),
-      );
+      const directories = [...consumers].map((consumer) => {
+        const owner = ownerDirectory(consumer);
+        // Wiring outside any unit never owns, not even from outside the boundary.
+        if (owner === undefined || !boundary || isInside(boundary, consumer)) return owner;
+        return boundary;
+      });
       if (directories.includes(undefined)) continue;
       const expected = commonDirectory(directories);
       if (unit.location === expected || !isInside(root, expected)) continue;
@@ -159,21 +155,27 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
       if (subjects.length !== 1) continue;
       const expected = path.dirname(subjects[0]);
       const directory = path.dirname(filename);
-      if (directory === expected || directory === path.join(expected, "__tests__")) continue;
+      if (
+        directory === expected ||
+        (supportDirectories.has(path.basename(directory)) && path.dirname(directory) === expected)
+      )
+        continue;
       suggestions.set(filename, suggestion(unit, expected, subjects));
     }
   }
   return { suggestions, sources, problem };
 
   function suggestion(unit, expected, consumers) {
+    const list = [...consumers].map((file) => portable(path.relative(root, file))).sort();
     return {
       kind: unit.kind,
       subject: unit.subject,
       expected: portable(path.relative(root, expected)) || ".",
-      consumers: [...consumers]
-        .map((file) => portable(path.relative(root, file)))
-        .sort()
-        .join(", "),
+      // A long list hides the message: name a few consumers and count the rest.
+      consumers:
+        list.length > 4
+          ? `${list.slice(0, 3).join(", ")} and ${list.length - 3} more`
+          : list.join(", "),
     };
   }
 
@@ -181,12 +183,17 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
     const directory = path.dirname(filename);
     const stem = path.basename(filename).replace(/\.[^.]+$/, "");
     const entry = allowEntry && (stem === "index" || stem === path.basename(directory));
-    if (testPattern.test(filename) || directory.split(path.sep).includes("__tests__")) {
+    if (
+      testPattern.test(filename) ||
+      directory.split(path.sep).some((segment) => supportDirectories.has(segment))
+    ) {
       const base = path.basename(filename);
       const name = testPattern.test(base)
         ? base.replace(testPattern, "")
         : base.replace(/\.[^.]+$/, "");
-      const folder = path.basename(directory) === "__tests__" ? path.dirname(directory) : directory;
+      const folder = supportDirectories.has(path.basename(directory))
+        ? path.dirname(directory)
+        : directory;
       return {
         kind: "test",
         name: name === "index" ? path.basename(folder) : name,
@@ -246,6 +253,18 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
     imports.get(filename).add(target);
     (typeOnly ? typeConsumers : valueConsumers).get(target).add(filename);
   }
+}
+
+// Lowercase folders, kebab-case or `_`-prefixed, name a grouping decision; the nearest
+// one bounds ownership inference. PascalCase folders are components and stay checked.
+function groupingBoundary(directory, root, cache) {
+  if (directory === root || !isInside(root, directory)) return undefined;
+  if (cache.has(directory)) return cache.get(directory);
+  const boundary = /^_?[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(path.basename(directory))
+    ? directory
+    : groupingBoundary(path.dirname(directory), root, cache);
+  cache.set(directory, boundary);
+  return boundary;
 }
 
 function commonDirectory(directories) {

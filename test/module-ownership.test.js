@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
 import { fixture, lint } from "./fixtures.js";
 
 const rules = ["component-ownership", "module-ownership", "test-colocation"];
@@ -337,3 +339,109 @@ it("preserves lowercase module entry folders without disabling test colocation",
     [["test-colocation", "data-access.test.ts"]],
   );
 });
+
+it("keeps wiring outside units inert across a grouping boundary", (t) => {
+  assert.deepEqual(
+    check(t, {
+      "lib/router.ts": 'import { Route } from "../routes/admin"; export const routes = [Route];',
+      "routes/admin.tsx":
+        'import { AdminPage } from "../features/Admin/Inner/AdminPage"; export const Route = { component: AdminPage };',
+      "features/Admin/index.tsx":
+        'import { Inner } from "./Inner"; export function Admin() { return <Inner/>; }',
+      "features/Admin/Inner/index.tsx": "export function Inner() { return <section/>; }",
+      "features/Admin/Inner/AdminPage.tsx": "export function AdminPage() { return <main/>; }",
+      "scripts/update.ts": 'import { input } from "../codegen/Gen/input"; console.log(input);',
+      "codegen/Gen/index.ts": "export const gen = () => 1;",
+      "codegen/Gen/input.ts": "export const input = 1;",
+    }),
+    [],
+  );
+});
+
+it("treats underscore-prefixed folders as groupings", (t) => {
+  assert.deepEqual(
+    check(t, {
+      "Panel/index.tsx":
+        'import { A } from "./A"; import { B } from "./B"; export function Panel() { return <><A/><B/></>; }',
+      "Panel/A.tsx":
+        'import { label } from "./_shared/label"; export function A() { return <b>{label}</b>; }',
+      "Panel/B.tsx":
+        'import { label } from "./_shared/label"; export function B() { return <i>{label}</i>; }',
+      "Panel/_shared/label.ts": "export const label = 'x';",
+    }),
+    [],
+  );
+});
+
+it("treats fixture, mock and snapshot folders as test support", (t) => {
+  assert.deepEqual(
+    check(t, {
+      "Orders/index.tsx":
+        'import { orders } from "../__mocks__/orders"; export function Orders() { return <ul>{orders}</ul>; }',
+      "__mocks__/orders.ts": "export const orders = [];",
+      "schema.ts": "export const schema = 1;",
+      "__fixtures__/schema.ts":
+        'import { schema } from "../schema"; export const fixture = schema;',
+    }),
+    [],
+  );
+});
+
+it("recognizes e2e and bench suffixes as tests", (t) => {
+  assert.deepEqual(
+    check(t, {
+      "Orders/index.tsx": "export function Orders() { return <ul/>; }",
+      "Orders/format.ts": "export const format = () => '';",
+      "format.bench.ts": 'import { format } from "./Orders/format"; format();',
+      "Orders.e2e.ts": 'import { Orders } from "./Orders"; Orders();',
+    }).map(({ rule, file }) => [rule, file]),
+    [
+      ["test-colocation", "format.bench.ts"],
+      ["test-colocation", "Orders.e2e.ts"],
+    ],
+  );
+});
+
+it("summarizes long consumer lists", (t) => {
+  const files = { "A/shared.ts": "export const shared = 1;" };
+  for (const name of ["A", "B", "C", "D", "E"])
+    files[`${name}/index.tsx`] =
+      `import { shared } from "../A/shared"; export function ${name}() { return <b>{shared}</b>; }`;
+  assert.deepEqual(
+    check(t, files).map(({ message }) => message),
+    [
+      "Review placement of A/shared.ts under ./. Consumers: A/index.tsx, B/index.tsx, C/index.tsx and 2 more.",
+    ],
+  );
+});
+
+it("infers the package src root when root is omitted", (t) => {
+  const project = fixture({ "Orders.tsx": orders, "useOrders.ts": hook }, {}, {}, rules);
+  t.after(project.cleanup);
+  assert.deepEqual(lintWithoutRoot(project), ["src/useOrders.ts"]);
+});
+
+it("skips files whose nearest package is a workspace root without src", (t) => {
+  const project = fixture(
+    {
+      "Orders.tsx": orders,
+      "useOrders.ts": hook,
+      "mono/package.json": JSON.stringify({ private: true, workspaces: ["packages/*"] }),
+      "mono/App/index.tsx":
+        'import { Widget } from "../Widget"; export function App() { return <Widget/>; }',
+      "mono/Widget.tsx": "export function Widget() { return <span/>; }",
+    },
+    {},
+    {},
+    rules,
+  );
+  t.after(project.cleanup);
+  assert.deepEqual(lintWithoutRoot(project), ["src/useOrders.ts"]);
+});
+
+function lintWithoutRoot(project) {
+  const config = JSON.parse(fs.readFileSync(path.join(project.directory, "custom.json"), "utf8"));
+  for (const rule of Object.keys(config.rules)) config.rules[rule] = "warn";
+  fs.writeFileSync(path.join(project.directory, "auto.json"), JSON.stringify(config));
+  return lint(project, "auto").diagnostics.map((diagnostic) => diagnostic.filename);
+}
