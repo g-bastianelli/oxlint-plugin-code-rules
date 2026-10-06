@@ -16,7 +16,7 @@ export function ownershipGraph(root, filename, source) {
       validated: false,
       unsaved: false,
     };
-    if (cache.size >= 8) cache.delete(cache.keys().next().value);
+    if (cache.size >= 64) cache.delete(cache.keys().next().value);
     cache.set(root, entry);
   }
   if (!entry.validated) {
