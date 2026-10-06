@@ -1,9 +1,11 @@
 {
   "name": "oxlint-plugin-code-rules",
-  "version": "0.1.1",
-  "description": "Explicit code organization rules for Oxlint.",
+  "version": "0.2.0",
+  "description": "Import-graph ownership rules for Oxlint: components, modules and tests live under their owner.",
   "keywords": [
+    "architecture",
     "code-organization",
+    "colocation",
     "lint",
     "oxlint",
     "oxlint-plugin",
@@ -22,6 +24,7 @@
   "files": [
     "src",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "type": "module",
