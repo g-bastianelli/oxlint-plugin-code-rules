@@ -1,0 +1,202 @@
+import assert from "node:assert/strict";
+import { it } from "node:test";
+import { fixture, lint } from "./fixtures.js";
+
+const rules = ["component-ownership", "module-ownership", "test-colocation"];
+const orders =
+  'import { useOrders } from "./useOrders"; export function Orders() { useOrders(); return <ul/>; }';
+const hook = "export function useOrders() { return []; }";
+
+function check(t, files) {
+  const project = fixture(files, {}, {}, rules);
+  t.after(project.cleanup);
+  // Oxlint lints files in parallel, so diagnostics arrive in any order.
+  return lint(project)
+    .diagnostics.map((diagnostic) => ({
+      rule: diagnostic.code.replace(/^code-rules\(|\)$/g, ""),
+      file: diagnostic.filename.replace(/^src\//, ""),
+      message: diagnostic.message,
+    }))
+    .sort((a, b) => a.file.localeCompare(b.file) || a.rule.localeCompare(b.rule));
+}
+
+it("places a private hook under its only component", (t) => {
+  assert.deepEqual(check(t, { "Orders.tsx": orders, "useOrders.ts": hook }), [
+    {
+      rule: "module-ownership",
+      file: "useOrders.ts",
+      message: "Review placement of useOrders.ts under Orders/. Consumers: Orders.tsx.",
+    },
+  ]);
+});
+
+it("accepts a hook beside its component inside the owner folder", (t) => {
+  assert.deepEqual(check(t, { "Orders/index.tsx": orders, "Orders/useOrders.ts": hook }), []);
+});
+
+it("counts type-only imports as ownership of type modules", (t) => {
+  const diagnostics = check(t, {
+    "Orders/index.tsx":
+      'import type { Order } from "../types"; export function Orders(_: { order?: Order }) { return <ul/>; }',
+    "types.ts": "export type Order = { id: string };",
+  });
+  assert.deepEqual(
+    diagnostics.map(({ rule, file }) => [rule, file]),
+    [["module-ownership", "types.ts"]],
+  );
+  assert.match(diagnostics[0].message, /under Orders\//);
+});
+
+it("moves a module shared by two branches to their common ancestor", (t) => {
+  const diagnostics = check(t, {
+    "Orders/index.tsx":
+      'import { money } from "./money"; export function Orders() { return <b>{money(1)}</b>; }',
+    "Billing/index.tsx":
+      'import { money } from "../Orders/money"; export function Billing() { return <b>{money(2)}</b>; }',
+    "Orders/money.ts": "export const money = (value) => `${value} €`;",
+  });
+  assert.equal(diagnostics.length, 1);
+  assert.match(
+    diagnostics[0].message,
+    /placement of Orders\/money\.ts under \.\/\. Consumers: Billing\/index\.tsx, Orders\/index\.tsx/,
+  );
+});
+
+it("lets loose modules act for the unit that contains them", (t) => {
+  const diagnostics = check(t, {
+    "Table/index.tsx":
+      'import { columns } from "./columns"; export function Table() { return <table>{columns}</table>; }',
+    "Table/columns.tsx":
+      'import { Cell } from "../Cell"; import { width } from "../width"; export const columns = <Cell w={width}/>;',
+    "Cell.tsx": "export function Cell() { return <td/>; }",
+    "width.ts": "export const width = 3;",
+  });
+  assert.deepEqual(diagnostics.map(({ file }) => file).sort(), ["Cell.tsx", "width.ts"]);
+  for (const diagnostic of diagnostics) assert.match(diagnostic.message, /under Table\//);
+});
+
+it("does not let route registries or wiring outside units own code", (t) => {
+  assert.deepEqual(
+    check(t, {
+      "lib/router.ts":
+        'import { Route as Home } from "../routes/index"; import { Route as Admin } from "../routes/admin"; export const routes = [Home, Admin];',
+      "routes/index.tsx": "export const Route = { component: () => <main/> };",
+      "routes/admin.tsx":
+        'import { AdminPage } from "../features/AdminPage"; import { client } from "../lib/query"; export const Route = { client, component: AdminPage };',
+      "features/AdminPage.tsx": "export function AdminPage() { return <main/>; }",
+      "lib/query.ts": "export const client = {};",
+    }),
+    [],
+  );
+});
+
+it("treats an encapsulated lowercase folder as the owner of its private modules", (t) => {
+  const diagnostics = check(t, {
+    "main.ts": 'import { createOrders } from "./orders"; createOrders();',
+    "orders/index.ts": 'export { createOrders } from "./service";',
+    "orders/service.ts":
+      'import { OrderError } from "../errors"; export function createOrders() { return OrderError; }',
+    "errors.ts": "export class OrderError extends Error {}",
+  });
+  assert.deepEqual(
+    diagnostics.map(({ file, message }) => [file, message]),
+    [["errors.ts", "Review placement of errors.ts under orders/. Consumers: orders/service.ts."]],
+  );
+});
+
+it("never moves the index of a folder reached by deep imports", (t) => {
+  const diagnostics = check(t, {
+    "Page/index.tsx":
+      'import { a } from "../helpers"; import { b } from "../helpers/b"; export function Page() { return <i>{a}{b}</i>; }',
+    "helpers/index.ts": "export const a = 1;",
+    "helpers/b.ts": "export const b = 2;",
+  });
+  assert.deepEqual(
+    diagnostics.map(({ file }) => file),
+    ["helpers/b.ts"],
+  );
+});
+
+it("checks component folders and accepts named entries nested in their owner", (t) => {
+  const leaf = "export function Child() { return <span/>; }";
+  const parent = 'import { Child } from "./Child"; export function Parent() { return <Child/>; }';
+  assert.deepEqual(
+    check(t, { "Parent.tsx": parent, "Child/index.tsx": leaf }).map(({ message }) => message),
+    ["Review placement of Child/ under Parent/. Consumers: Parent.tsx."],
+  );
+  assert.deepEqual(
+    check(t, {
+      "Parent/Parent.tsx": parent.replace("./Child", "./Child/Child"),
+      "Parent/Child/Child.tsx": leaf,
+    }),
+    [],
+  );
+});
+
+it("ignores tests and stories as owners", (t) => {
+  const diagnostics = check(t, {
+    "Orders.tsx": orders,
+    "useOrders.ts": hook,
+    "useOrders.test.ts": 'import { useOrders } from "./useOrders"; useOrders();',
+    "Orders.stories.tsx": 'import { Orders } from "./Orders"; export const Default = <Orders/>;',
+  });
+  assert.deepEqual(
+    diagnostics.map(({ rule, file }) => [rule, file]),
+    [["module-ownership", "useOrders.ts"]],
+  );
+});
+
+it("colocates tests with the module they exercise", (t) => {
+  const diagnostics = check(t, {
+    "Orders/index.tsx": orders,
+    "Orders/useOrders.ts": hook,
+    "__tests__/useOrders.test.ts": 'import { useOrders } from "../Orders/useOrders"; useOrders();',
+    "Orders/__tests__/index.test.tsx": 'import { Orders } from "../index"; Orders();',
+    "Orders/__tests__/useOrders.ts": 'import { useOrders } from "../useOrders"; useOrders();',
+    "Billing/__tests__/Orders.test.tsx": 'import { Orders } from "../../Orders"; Orders();',
+    "Orders/Orders.stories.tsx":
+      'import { Orders } from "./index"; export const Default = <Orders/>;',
+  });
+  assert.deepEqual(
+    diagnostics.map(({ rule, file, message }) => [rule, file, message]),
+    [
+      [
+        "test-colocation",
+        "__tests__/useOrders.test.ts",
+        "Colocate __tests__/useOrders.test.ts with Orders/useOrders.ts under Orders/.",
+      ],
+      [
+        "test-colocation",
+        "Billing/__tests__/Orders.test.tsx",
+        "Colocate Billing/__tests__/Orders.test.tsx with Orders/index.tsx under Orders/.",
+      ],
+    ],
+  );
+});
+
+it("treats runtime protocol imports such as bun:test as external", (t) => {
+  const diagnostics = check(t, {
+    "Orders.tsx": orders,
+    "useOrders.ts": hook,
+    "useOrders.test.ts":
+      'import { expect } from "bun:test"; import { useOrders } from "./useOrders"; expect(useOrders());',
+  });
+  assert.deepEqual(
+    diagnostics.map(({ file }) => file),
+    ["useOrders.ts"],
+  );
+});
+
+it("reports an incomplete graph once per enabled rule", (t) => {
+  const diagnostics = check(t, {
+    "Orders.tsx": orders,
+    "useOrders.ts": hook,
+    "load.ts": "export const load = (name) => import(name);",
+  });
+  assert.deepEqual(diagnostics.map(({ rule }) => rule).sort(), [
+    "component-ownership",
+    "module-ownership",
+    "test-colocation",
+  ]);
+  for (const diagnostic of diagnostics) assert.match(diagnostic.message, /analysis skipped/);
+});

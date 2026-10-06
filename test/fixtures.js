@@ -13,7 +13,7 @@ const categories = Object.fromEntries(
   ),
 );
 
-export function fixture(files, manifest = {}, tsconfig = {}) {
+export function fixture(files, manifest = {}, tsconfig = {}, rules = ["component-ownership"]) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "code-rules-")));
   const root = path.join(directory, "src");
   fs.mkdirSync(root);
@@ -27,7 +27,7 @@ export function fixture(files, manifest = {}, tsconfig = {}) {
     JSON.stringify({
       ...base,
       jsPlugins: [{ name: "code-rules", specifier: plugin }],
-      rules: { "code-rules/component-ownership": ["warn", { root }] },
+      rules: Object.fromEntries(rules.map((rule) => [`code-rules/${rule}`, ["warn", { root }]])),
     }),
   );
   return {

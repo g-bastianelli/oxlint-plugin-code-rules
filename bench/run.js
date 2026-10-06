@@ -4,7 +4,11 @@ import { branchedTree, fixture, lint } from "../test/fixtures.js";
 
 const files = {};
 for (let i = 0; i < 100; i++) Object.assign(files, branchedTree(`Tree${i}`));
-const project = fixture(files);
+const project = fixture(files, {}, {}, [
+  "component-ownership",
+  "module-ownership",
+  "test-colocation",
+]);
 try {
   const samples = { base: [], custom: [] };
   for (let i = 0; i < 6; i++) {
@@ -21,6 +25,7 @@ try {
   const result = {
     files: 6400,
     componentLevels: 6,
+    rules: ["component-ownership", "module-ownership", "test-colocation"],
     samples,
     medians,
     overheadMs: medians.custom - medians.base,
