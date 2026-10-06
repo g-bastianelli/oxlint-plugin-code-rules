@@ -16,6 +16,7 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
   const typeConsumers = new Map(files.map((filename) => [filename, new Set()]));
   const imports = new Map(files.map((filename) => [filename, new Set()]));
   const pinned = publicFiles(root, files);
+  const typeExports = new Set();
   const resolver = new ResolverFactory({
     tsconfig: "auto",
     conditionNames: ["node", "import"],
@@ -43,8 +44,8 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
     for (const statement of parsed.module.staticExports) {
       for (const entry of statement.entries) {
         if (!entry.moduleRequest) continue;
-        const target = resolve(filename, entry.moduleRequest.value);
-        if (target) pinned.add(target);
+        const target = resolve(filename, entry.moduleRequest.value, entry.isType);
+        if (target) (entry.isType ? typeExports : pinned).add(target);
       }
     }
     // Only materialize the AST when ESM summaries cannot describe the import target.
@@ -103,6 +104,8 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
         }
       }
   }
+  // Re-exported types make a module public, not the component that declares them.
+  for (const target of typeExports) if (units.get(target)?.kind === "module") pinned.add(target);
   const unitFolders = new Set();
   for (const unit of units.values())
     if (unit.folder && unit.folder !== root) unitFolders.add(unit.folder);
@@ -165,10 +168,10 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
     const stem = path.basename(filename).replace(/\.[^.]+$/, "");
     const entry = allowEntry && (stem === "index" || stem === path.basename(directory));
     if (testPattern.test(filename) || directory.split(path.sep).includes("__tests__")) {
-      const name = path
-        .basename(filename)
-        .replace(testPattern, "")
-        .replace(/\.[^.]+$/, "");
+      const base = path.basename(filename);
+      const name = testPattern.test(base)
+        ? base.replace(testPattern, "")
+        : base.replace(/\.[^.]+$/, "");
       const folder = path.basename(directory) === "__tests__" ? path.dirname(directory) : directory;
       return {
         kind: "test",
@@ -197,7 +200,7 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
   // Loose modules elsewhere (routes, app wiring) reference code without owning it.
   function ownerDirectory(filename) {
     const unit = units.get(filename);
-    if (unit.folder) return unit.folder;
+    if (unit.folder) return unit.folder === root ? undefined : unit.folder;
     for (
       let directory = path.dirname(filename);
       directory !== root;
@@ -207,10 +210,12 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
     return undefined;
   }
 
-  function resolve(filename, specifier) {
+  // Type links may target declaration-only files and never suspend the analysis.
+  function resolve(filename, specifier, typeOnly = false) {
     const resolved = resolver.resolveFileSync(filename, specifier);
     if (
       !resolved.path &&
+      !typeOnly &&
       !isBuiltin(specifier) &&
       // Runtime and bundler protocols (bun:, cloudflare:, virtual:) are external modules.
       !/^[a-z][a-z\d+.-]*:/i.test(specifier) &&
@@ -222,7 +227,7 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
   }
 
   function addImport(filename, specifier, typeOnly) {
-    const target = resolve(filename, specifier);
+    const target = resolve(filename, specifier, typeOnly);
     if (!valueConsumers.has(target)) return;
     imports.get(filename).add(target);
     (typeOnly ? typeConsumers : valueConsumers).get(target).add(filename);

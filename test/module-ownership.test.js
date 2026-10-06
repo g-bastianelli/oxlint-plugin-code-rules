@@ -200,3 +200,73 @@ it("reports an incomplete graph once per enabled rule", (t) => {
   ]);
   for (const diagnostic of diagnostics) assert.match(diagnostic.message, /analysis skipped/);
 });
+
+it("matches tests to subjects with dotted names", (t) => {
+  const diagnostics = check(t, {
+    "lib/index.ts": 'export { parse } from "./user.service";',
+    "lib/user.ts": "export type User = { id: string };",
+    "lib/user.service.ts":
+      'import type { User } from "./user"; export const parse = (user: User) => user.id;',
+    "user.service.test.ts":
+      'import { parse } from "./lib/user.service"; import type { User } from "./lib/user"; parse({ id: "1" } as User);',
+  });
+  assert.deepEqual(
+    diagnostics.map(({ rule, file, message }) => [rule, file, message]),
+    [
+      [
+        "test-colocation",
+        "user.service.test.ts",
+        "Colocate user.service.test.ts with lib/user.service.ts under lib/.",
+      ],
+    ],
+  );
+});
+
+it("does not let a root entry own the modules it wires", (t) => {
+  assert.deepEqual(
+    check(t, {
+      "index.ts": 'import { format } from "./lib/format"; export const run = () => format();',
+      "lib/format.ts": "export const format = () => '';",
+    }),
+    [],
+  );
+});
+
+it("keeps placing a component whose props type is re-exported", (t) => {
+  const diagnostics = check(t, {
+    "index.ts": 'export type { ChildProps } from "./Child";',
+    "Parent.tsx": 'import { Child } from "./Child"; export function Parent() { return <Child/>; }',
+    "Child.tsx":
+      "export type ChildProps = {}; export function Child(_: ChildProps) { return <span/>; }",
+  });
+  assert.deepEqual(
+    diagnostics.map(({ rule, file }) => [rule, file]),
+    [["component-ownership", "Child.tsx"]],
+  );
+});
+
+it("protects a type module re-exported as public API", (t) => {
+  assert.deepEqual(
+    check(t, {
+      "index.ts": 'export type { Order } from "./Orders/types";',
+      "Orders/index.tsx":
+        'import type { Order } from "./types"; export function Orders(_: { order?: Order }) { return <ul/>; }',
+      "Orders/types.ts": "export type Order = { id: string };",
+      "Billing/index.tsx":
+        'import type { Order } from "../Orders/types"; export function Billing(_: { order?: Order }) { return <b/>; }',
+    }),
+    [],
+  );
+});
+
+it("never suspends the analysis on type-only links to declaration files", (t) => {
+  const diagnostics = check(t, {
+    "env.d.ts": "declare const env: { mode: string };",
+    "Orders.tsx": `import type { Env } from "./env"; export type { Missing } from "types-only-package"; ${orders}`,
+    "useOrders.ts": hook,
+  });
+  assert.deepEqual(
+    diagnostics.map(({ rule, file }) => [rule, file]),
+    [["module-ownership", "useOrders.ts"]],
+  );
+});

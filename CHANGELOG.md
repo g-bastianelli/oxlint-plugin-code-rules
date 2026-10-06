@@ -28,6 +28,10 @@
 - Les spécificateurs à protocole (`bun:test`, `cloudflare:`, `virtual:`) ne
   suspendent plus l'analyse.
 - Un composant `Parent/Child/Child.tsx` correctement imbriqué n'est plus signalé.
+- Un import ou réexport de types vers un fichier de déclaration ou un package
+  sans code ne suspend pas l'analyse.
+- Un `export type` ne protège que les modules de types, pas le composant qui
+  déclare ces types.
 
 ### Performance
 
