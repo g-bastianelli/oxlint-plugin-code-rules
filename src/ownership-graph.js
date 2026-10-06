@@ -14,6 +14,7 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
   const pinned = publicFiles(root, files);
   const resolver = new ResolverFactory({
     tsconfig: "auto",
+    conditionNames: ["node", "import"],
     extensions: [".tsx", ".ts", ".jsx", ".js", ".mts", ".mjs", ".cts", ".cjs"],
     extensionAlias: {
       ".js": [".ts", ".tsx", ".js"],
@@ -91,7 +92,7 @@ export function buildOwnershipGraph(root, overrides = new Map()) {
         continue;
       if (
         [...importers].some(
-          (file) => !/\.[jt]sx$/.test(file) || /\.(?:test|spec|stories)\.[jt]sx$/.test(file),
+          (file) => !isComponentFile(file) && !/^index\.[jt]sx$/.test(path.basename(file)),
         )
       )
         continue;
@@ -131,9 +132,10 @@ export function isComponentFile(filename) {
 
 function ownerDirectory(filename) {
   const directory = path.dirname(filename);
-  return path.basename(filename).startsWith("index.")
+  const name = path.basename(filename, path.extname(filename));
+  return name === "index" || path.basename(directory) === name
     ? directory
-    : path.join(directory, path.basename(filename, path.extname(filename)));
+    : path.join(directory, name);
 }
 
 function commonDirectory(directories) {

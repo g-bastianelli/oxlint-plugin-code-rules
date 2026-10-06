@@ -44,6 +44,8 @@ contenant du JSX :
 
 Un propriétaire `Orders.tsx` correspond au dossier proposé `Orders/`.
 Un propriétaire `Orders/index.tsx` correspond au dossier existant `Orders/`.
+Il en va de même pour `Orders/Orders.tsx`. Un module JSX non PascalCase comme
+`columns.tsx` ne suffit pas à déduire un propriétaire de composant.
 La règle ne demande pas de créer un `index.tsx`, ne déplace aucun fichier et
 ne réécrit aucun import. Elle utilise les imports de valeurs comme indication
 d'appartenance, sans prétendre déterminer les frontières métier.

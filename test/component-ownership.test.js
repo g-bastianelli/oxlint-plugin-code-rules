@@ -12,6 +12,23 @@ const flat = {
   "Child.tsx": leaf,
 };
 
+it("resolves import-only conditional package exports", (t) => {
+  const p = project(t, {
+    ...flat,
+    "Parent.tsx": `import "conditional-package/adapter"; ${flat["Parent.tsx"]}`,
+  });
+  writeFiles(p.directory, {
+    "node_modules/conditional-package/package.json": JSON.stringify({
+      name: "conditional-package",
+      exports: { "./adapter": { import: { types: "./missing.d.ts", default: "./adapter.mjs" } } },
+    }),
+    "node_modules/conditional-package/adapter.mjs": "export {};",
+  });
+  const result = lint(p);
+  assert.equal(result.diagnostics.length, 1);
+  assert.match(result.diagnostics[0].message, /under Parent\//);
+});
+
 function project(t, files, manifest, tsconfig) {
   const result = fixture(files, manifest, tsconfig);
   t.after(() => result.cleanup());
@@ -27,6 +44,16 @@ it("loads the packaged rule in Oxlint and reports the concrete owner", (t) => {
 
 it("accepts a private nested component", (t) => {
   const files = { "Parent/index.tsx": flat["Parent.tsx"], "Parent/Child.tsx": leaf };
+  assert.deepEqual(lint(project(t, files)).diagnostics, []);
+});
+
+it("accepts a named component inside its existing owner folder", (t) => {
+  const files = { "Parent/Parent.tsx": flat["Parent.tsx"], "Parent/Child.tsx": leaf };
+  assert.deepEqual(lint(project(t, files)).diagnostics, []);
+});
+
+it("does not invent a component owner for a lowercase JSX helper", (t) => {
+  const files = { "columns.tsx": flat["Parent.tsx"], "Child.tsx": leaf };
   assert.deepEqual(lint(project(t, files)).diagnostics, []);
 });
 
