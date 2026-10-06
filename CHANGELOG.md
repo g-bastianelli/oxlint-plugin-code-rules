@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.0
+
+### Ajouts
+
+- Les dossiers en minuscules (kebab-case ou préfixés par `_`) délimitent des
+  regroupements : un consommateur extérieur compte à la racine du regroupement
+  et ne fait pas déplacer la fonctionnalité chez lui ; un fichier enfoui utilisé
+  depuis l'extérieur remonte à cette racine. Les dossiers PascalCase restent
+  soumis à l'appartenance.
+- `root` devient optionnel : sans option, chaque fichier est analysé dans le
+  `src/` du package le plus proche ; la racine d'un workspace sans `src/` est
+  ignorée. Une seule configuration couvre un monorepo.
+- `__fixtures__/`, `__mocks__/` et `__snapshots__/` sont traités comme
+  `__tests__/` ; les suffixes `.e2e.` et `.bench.` comme des tests.
+
+### Changements
+
+- Au-delà de quatre consommateurs, le message en cite trois et compte les autres.
+- Le cache de graphes passe de 8 à 64 racines.
+
+### Corrections
+
+- Le câblage hors unité (routes, scripts) reste inerte même à travers une
+  frontière de regroupement.
+
 ## 0.2.0
 
 ### Ajouts
