@@ -11,7 +11,7 @@ export function ownershipGraph(root, filename, source) {
     entry = {
       overrides: new Map(),
       graph: undefined,
-      reported: false,
+      reported: new Set(),
       snapshot: undefined,
       validated: false,
       unsaved: false,
@@ -28,7 +28,7 @@ export function ownershipGraph(root, filename, source) {
     entry.unsaved = false;
     entry.overrides.clear();
     entry.validated = true;
-    entry.reported = false;
+    entry.reported.clear();
     // Revalidate metadata between batches without reparsing unchanged source files.
     setImmediate(() => {
       entry.validated = false;
@@ -38,7 +38,7 @@ export function ownershipGraph(root, filename, source) {
     entry.overrides.set(filename, source);
     entry.unsaved ||= !fs.existsSync(filename) || fs.readFileSync(filename, "utf8") !== source;
     entry.graph = buildOwnershipGraph(root, entry.overrides);
-    entry.reported = false;
+    entry.reported.clear();
   }
   return entry;
 }

@@ -3,8 +3,15 @@
 [![CI](https://github.com/g-bastianelli/oxlint-plugin-code-rules/actions/workflows/ci.yml/badge.svg)](https://github.com/g-bastianelli/oxlint-plugin-code-rules/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/oxlint-plugin-code-rules)](https://www.npmjs.com/package/oxlint-plugin-code-rules)
 
-Règles explicites d'organisation du code pour Oxlint. Première règle :
-`code-rules/component-ownership`.
+Règles explicites d'organisation du code pour Oxlint, fondées sur le graphe
+d'imports : chaque fichier vit sous son propriétaire, et le code partagé à
+l'ancêtre commun le plus proche de ses consommateurs.
+
+| Règle                            | Cible                                        |
+| -------------------------------- | -------------------------------------------- |
+| `code-rules/component-ownership` | Composants PascalCase et dossiers composants |
+| `code-rules/module-ownership`    | Hooks, types, helpers et dossiers de modules |
+| `code-rules/test-colocation`     | Tests et stories                             |
 
 ## Configuration
 
@@ -21,41 +28,61 @@ Puis, dans la configuration Oxlint :
 {
   "jsPlugins": [{ "name": "code-rules", "specifier": "oxlint-plugin-code-rules" }],
   "rules": {
-    "code-rules/component-ownership": ["warn", { "root": "src" }]
+    "code-rules/component-ownership": ["warn", { "root": "src" }],
+    "code-rules/module-ownership": ["warn", { "root": "src" }],
+    "code-rules/test-colocation": ["warn", { "root": "src" }]
   }
 }
 ```
+
+Chaque règle s'active séparément ; aucune ne l'est implicitement. Activées
+ensemble, elles partagent un seul graphe par racine.
 
 `root` est obligatoire et relatif au répertoire de travail du linter ; un chemin
 absolu est également accepté. Choisir une racine contenant **tous les consommateurs**
 du périmètre étudié, généralement le `src` d'un package. Les consommateurs hors de
 cette racine ne sont pas découverts. Dans un monorepo, configurer chaque package
 séparément. Les exclusions de diagnostic Oxlint ne réduisent pas le graphe : un
-fichier ignoré peut toujours consommer un composant.
+fichier ignoré peut toujours consommer un module.
 
-## component-ownership
+## Modèle d'appartenance
 
-La règle suggère un emplacement pour les fichiers PascalCase `.tsx` et `.jsx`
-contenant du JSX :
+Le graphe découpe la racine en **unités** :
+
+- Un composant `Orders.tsx` (PascalCase, `.tsx`/`.jsx`) possède le dossier proposé `Orders/`.
+- Un dossier composant `Orders/index.tsx` ou `Orders/Orders.tsx` possède `Orders/`.
+- Un dossier de modules `orders/index.ts` possède `orders/` s'il est
+  **encapsulé** : l'extérieur n'y entre que par son point d'entrée. Un dossier
+  atteint par des imports profonds (`routes/`, `lib/`) n'est qu'un regroupement.
+- Un module isolé (`columns.tsx`, `useOrders.ts`) situé dans une unité agit pour
+  elle : il possède ses voisins, sans créer de dossier.
+- Un module isolé hors de toute unité (registre de routes, `main.tsx`, câblage
+  applicatif) référence du code sans le posséder : ce qu'il consomme ne reçoit
+  aucune suggestion. Les routes par convention de fichiers n'ont donc pas
+  besoin de configuration particulière.
+
+L'emplacement attendu d'un fichier est l'ancêtre commun le plus proche des
+dossiers de ses propriétaires :
 
 - Un seul consommateur : sous le dossier de ce propriétaire.
 - Plusieurs consommateurs : à leur ancêtre commun le plus proche.
 - Aucun consommateur : aucune déduction.
 
-Un propriétaire `Orders.tsx` correspond au dossier proposé `Orders/`.
-Un propriétaire `Orders/index.tsx` correspond au dossier existant `Orders/`.
-Il en va de même pour `Orders/Orders.tsx`. Un module JSX non PascalCase comme
-`columns.tsx` ne suffit pas à déduire un propriétaire de composant.
-La règle ne demande pas de créer un `index.tsx`, ne déplace aucun fichier et
-ne réécrit aucun import. Elle utilise les imports de valeurs comme indication
-d'appartenance, sans prétendre déterminer les frontières métier.
+Les tests et stories ne sont jamais propriétaires : un composant testé reste
+analysé. Les imports de types comptent pour les modules (un `types.ts` appartient
+à ceux qui l'utilisent) mais pas pour les composants, possédés par ceux qui
+les rendent.
 
 ```text
 Orders/
 ├── index.tsx
 ├── SharedBadge.tsx          # utilisé par Row et EmptyState
+├── useOrders.ts             # hook privé de Orders
+├── useOrders.test.ts        # colocalisé avec son sujet
+├── types.ts                 # types partagés par Table et EmptyState
 ├── Table/
 │   ├── index.tsx
+│   ├── columns.tsx          # agit pour Table
 │   └── Row/
 │       ├── index.tsx
 │       └── Menu/
@@ -65,30 +92,56 @@ Orders/
     └── index.tsx
 ```
 
-L'arbre peut comporter plusieurs niveaux et branches. Une chaîne à plat peut
-demander plusieurs passes : déplacer le propriétaire modifie l'emplacement de
-ses enfants. Les tests couvrent cinq niveaux de convergence et six niveaux de
-branches, dont des composants partagés à un ancêtre intermédiaire.
+Les règles ne demandent pas de créer un `index.tsx`, ne déplacent aucun fichier
+et ne réécrivent aucun import. Elles utilisent les imports comme indication
+d'appartenance, sans prétendre déterminer les frontières métier. Une chaîne à
+plat peut demander plusieurs passes : déplacer le propriétaire modifie
+l'emplacement de ses enfants. Les tests couvrent cinq niveaux de convergence
+et six niveaux de branches, dont des composants partagés à un ancêtre
+intermédiaire.
 
-Les alias `tsconfig`, les imports `.js` vers TypeScript et les imports dynamiques
-à chaîne littérale sont résolus avec Oxc. Les imports de types sont exclus.
-Les fichiers réexportés et les cibles source de `package.json#exports` sont
-protégés. Les composants cycliques et ceux consommés par des fichiers non-JSX,
-tests ou stories ne reçoivent pas de suggestion de placement.
+## component-ownership
+
+Signale les fichiers PascalCase `.tsx` et `.jsx` contenant du JSX, et les
+dossiers composants (`Child/` est signalé via `Child/index.tsx`), placés ailleurs
+qu'à l'emplacement attendu. Le diagnostic est ancré sur le premier JSX.
+
+## module-ownership
+
+Signale les autres modules : hooks, types, schémas, helpers, contextes, et les
+dossiers de modules encapsulés. Un `index.*` de simple regroupement n'est jamais
+déplacé. Le diagnostic est ancré sur la première instruction.
+
+## test-colocation
+
+Signale un fichier `*.test.*`, `*.spec.*`, `*.stories.*` ou situé sous
+`__tests__/` qui n'est pas à côté de son sujet. Le sujet est le module importé
+portant le même nom (`useOrders.test.ts` → `useOrders.ts`,
+`Orders/index.test.tsx` → `Orders/`). Le test peut vivre dans le dossier du
+sujet ou dans son sous-dossier `__tests__/`. Sans sujet unique, aucune déduction.
+
+## Résolution et limites
+
+Les alias `tsconfig`, les imports `.js` vers TypeScript, les `exports`
+conditionnels (`node`, `import`) et les imports dynamiques à chaîne littérale
+sont résolus avec Oxc. Les spécificateurs à protocole (`node:`, `bun:`,
+`cloudflare:`, `virtual:`) sont externes. Les fichiers réexportés et les cibles
+source de `package.json#exports` sont protégés. Les fichiers impliqués dans un
+cycle d'appartenance ne reçoivent pas de suggestion.
 
 Si le graphe ne peut être établi (erreur de parsing, import de code non résolu,
-import dynamique calculé, `require` ou appel `import.meta` calculé), un diagnostic
-explique pourquoi l'analyse du périmètre est suspendue. Les dossiers générés
-usuels (`node_modules`, `.git`, `.moon`, `dist`, `build`, `coverage`, `paraglide`)
-et les fichiers `.d.ts` sont exclus ; les liens symboliques ne sont pas suivis.
-Les projets qui découvrent leurs routes par convention de fichiers doivent
-exclure ces points d'entrée des diagnostics de placement via leur configuration
-Oxlint. La règle ne connaît pas les conventions des frameworks.
+import dynamique calculé, `require` ou appel `import.meta` calculé), chaque règle
+activée explique une fois pourquoi l'analyse du périmètre est suspendue. Les
+dossiers générés usuels (`node_modules`, `.git`, `.moon`, `dist`, `build`,
+`coverage`, `paraglide`) et les fichiers `.d.ts` sont exclus ; les liens
+symboliques ne sont pas suivis. Un fichier PascalCase `.tsx` sans JSX n'est
+signalé par aucune règle.
 
 ## Performance et cache
 
 L'implémentation utilise `createOnce`, des visiteurs ciblés et le retour `false`
-de `before` pour les fichiers sans diagnostic. Le graphe utilise le résumé ESM
+de `before` pour les fichiers sans diagnostic. Oxlint exécutant toutes les règles
+d'un fichier à la suite, la résolution du fichier est partagée entre les règles. Le graphe utilise le résumé ESM
 du parseur Oxc ; un AST supplémentaire n'est matérialisé que pour examiner les
 imports calculés ou les formes non-ESM.
 
@@ -107,8 +160,8 @@ un autre fichier prend effet au prochain lint du composant : le plugin ne demand
 pas lui-même au serveur de relinter ses dépendants.
 
 Le benchmark lance réellement Oxlint sur 6 400 fichiers répartis en arbres
-à six niveaux. Après une chauffe, cinq exécutions alternent avec et sans la
-règle. Il vérifie les diagnostics, publie les mesures dans `bench/results.json`
+à six niveaux. Après une chauffe, cinq exécutions alternent avec et sans les
+trois règles. Il vérifie les diagnostics, publie les mesures dans `bench/results.json`
 et impose un budget local de 1 000 ms en médiane. Ce budget dépend de la machine
 et ne constitue pas une mesure du lint complet de Notom.
 
