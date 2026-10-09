@@ -1,34 +1,52 @@
-# oxlint-plugin-code-rules
+# Code Rules
 
+![Code Rules — Give every file a home.](docs/assets/banner.svg)
+
+[![npm version](https://img.shields.io/npm/v/oxlint-plugin-code-rules)](https://www.npmjs.com/package/oxlint-plugin-code-rules)
 [![CI](https://github.com/g-bastianelli/oxlint-plugin-code-rules/actions/workflows/ci.yml/badge.svg)](https://github.com/g-bastianelli/oxlint-plugin-code-rules/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/oxlint-plugin-code-rules)](https://www.npmjs.com/package/oxlint-plugin-code-rules)
+[![License: MIT](https://img.shields.io/badge/license-MIT-6cdfb1)](LICENSE)
 
-Règles explicites d'organisation du code pour Oxlint. Trois règles fondées sur le
-graphe d'imports placent chaque fichier sous son propriétaire et le code partagé
-à l'ancêtre commun le plus proche de ses consommateurs ; cinq règles de structure
-tiennent les façades, les points d'entrée et le nommage.
+**Give every file a home.** Architecture rules for React and TypeScript, powered by Oxlint.
 
-| Règle                            | Cible                                                   |
-| -------------------------------- | ------------------------------------------------------- |
-| `code-rules/component-ownership` | Composants PascalCase et dossiers composants            |
-| `code-rules/module-ownership`    | Hooks, types, helpers et dossiers de modules            |
-| `code-rules/test-colocation`     | Tests et stories                                        |
-| `code-rules/no-deep-import`      | Imports qui contournent l'entrée d'un dossier           |
-| `code-rules/declarative-entry`   | `index.ts` sans flux de contrôle ni effet au chargement |
-| `code-rules/no-nested-jsx-map`   | `.map` imbriqué dans un `.map` en JSX                   |
-| `code-rules/no-catch-all-module` | Fichiers `utils`, `helpers`, `misc`, `common`           |
-| `code-rules/no-enum`             | Déclarations `enum`                                     |
+Code Rules follows your imports to suggest where components, hooks, types and tests
+belong. Private files live with their owner. Shared files live at their consumers'
+nearest common ancestor. Eight opt-in rules also keep module boundaries, entry
+points and naming explicit.
 
-## Configuration
+[Rules](#rules) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/g-bastianelli/oxlint-plugin-code-rules/issues)
 
-Le package est autonome, en ESM, sans compilation ni installation globale.
-Il requiert `oxlint` ^1.85.0 en dépendance du projet :
+## See what it catches
 
-```sh
-bun add -d oxlint-plugin-code-rules
+If `Orders.tsx` is the only component that renders `OrderRow.tsx`, the row belongs
+under `Orders/`. The plugin reports the expected location and its consumers.
+
+```text
+Before                      Suggested structure
+src/                        src/
+├── Orders.tsx              └── Orders/
+└── OrderRow.tsx                 ├── index.tsx
+                                └── OrderRow.tsx
 ```
 
-Puis, dans la configuration Oxlint :
+If another component starts using the row, its suggested location becomes their
+nearest common ancestor. Hooks and types follow the same ownership model; tests
+and stories stay beside their subject.
+
+The example uses `index.tsx`, but the rules do not require it. They report
+placements; they do not move files or rewrite imports.
+
+## Quick start
+
+Requires Node.js `^20.19.0 || >=22.12.0` and Oxlint `^1.85.0`.
+The package is ESM and needs no build step or global installation.
+
+```sh
+npm install --save-dev oxlint oxlint-plugin-code-rules
+# or
+bun add -d oxlint oxlint-plugin-code-rules
+```
+
+Add the plugin and the rules you want to your `.oxlintrc.json`:
 
 ```json
 {
@@ -46,217 +64,187 @@ Puis, dans la configuration Oxlint :
 }
 ```
 
-Chaque règle s'active séparément ; aucune ne l'est implicitement. Activées
-ensemble, elles partagent un seul graphe par racine.
+Run `npx oxlint` or `bunx oxlint`. Start with warnings to review the suggestions,
+then switch individual rules to `"error"` when they fit your project.
+No rule is enabled implicitly. The ownership rules share one graph per root.
 
-Sans option, chaque fichier est analysé dans le `src/` du package le plus proche
-(celui dont le `package.json` est le premier ancêtre), ou dans le package
-lui-même s'il n'a pas de `src/`. La racine d'un workspace (`package.json` avec
-`workspaces`) sans `src/` n'est pas analysée. Une seule configuration couvre
-donc un monorepo ; les fichiers hors de ce `src/` ne sont pas analysés. L'option
-`{ "root": "src" }` fixe explicitement la racine, relative au répertoire de
-travail du linter ou absolue. Choisir une racine contenant **tous les
-consommateurs** du périmètre étudié. Les exclusions de diagnostic Oxlint ne
-réduisent pas le graphe : un fichier ignoré peut toujours consommer un module.
+## Rules
 
-## Modèle d'appartenance
+All rule names use the `code-rules/` prefix.
 
-Le graphe découpe la racine en **unités** :
+| Rule                                          | What it checks                                                             |
+| --------------------------------------------- | -------------------------------------------------------------------------- |
+| [`component-ownership`](#component-ownership) | React components live under their owner, or beside their shared consumers. |
+| [`module-ownership`](#module-ownership)       | Hooks, types, schemas and helpers follow the same ownership graph.         |
+| [`test-colocation`](#test-colocation)         | Tests and stories live beside their subject.                               |
+| [`no-deep-import`](#no-deep-import)           | Imports go through a folder's public entry point.                          |
+| [`declarative-entry`](#declarative-entry)     | Module entry points contain declarative composition.                       |
+| [`no-nested-jsx-map`](#no-nested-jsx-map)     | Nested JSX lists get their own component.                                  |
+| [`no-catch-all-module`](#no-catch-all-module) | Modules have a specific name instead of `utils` or `helpers`.              |
+| [`no-enum`](#no-enum)                         | TypeScript enums become literal unions.                                    |
 
-- Un composant `Orders.tsx` (PascalCase, `.tsx`/`.jsx`) possède le dossier proposé `Orders/`.
-- Un dossier composant `Orders/index.tsx` ou `Orders/Orders.tsx` possède `Orders/`.
-- Un dossier de modules `orders/index.ts` possède `orders/` s'il est
-  **encapsulé** : l'extérieur n'y entre que par son point d'entrée. Un dossier
-  atteint par des imports profonds (`routes/`, `lib/`) n'est qu'un regroupement.
-- Un module isolé (`columns.tsx`, `useOrders.ts`) situé dans une unité agit pour
-  elle : il possède ses voisins, sans créer de dossier.
-- Un module isolé hors de toute unité (registre de routes, `main.tsx`, câblage
-  applicatif) référence du code sans le posséder : ce qu'il consomme ne reçoit
-  aucune suggestion. Les routes par convention de fichiers n'ont donc pas
-  besoin de configuration particulière.
+### component-ownership
 
-Les dossiers **kebab-case** (`command-palette/`, `data-access/`, un seul mot
-comme `reorder/`, ou préfixés par `_` comme `_shared/`) définissent des
-frontières de regroupement sans liste de configuration. Le nom, après un `_`
-optionnel, doit commencer par une lettre minuscule et ne contenir que des
-lettres minuscules, chiffres et tirets séparant des segments non vides.
-Les dossiers **PascalCase** désignent les composants et restent soumis à
-l'appartenance, même lorsqu'ils possèdent déjà leur propre dossier.
+Checks PascalCase `.tsx` and `.jsx` files containing JSX, and component folders
+such as `Child/index.tsx` or `Child/Child.tsx`. The diagnostic points to the first
+JSX node. Type-only consumers do not own components.
 
-La frontière la plus proche s'applique à chaque fichier. Un consommateur
-extérieur compte comme un consommateur à la racine de ce regroupement : il ne
-fait pas déplacer la fonctionnalité chez lui. Un fichier enfoui utilisé depuis
-l'extérieur doit cependant remonter à cette racine. À l'intérieur, les enfants,
-hooks et types privés restent contrôlés, à toute profondeur ; les tests restent
-colocalisés avec leur sujet, même à travers une frontière. Un point d'entrée du
-regroupement n'entraîne jamais le déplacement du regroupement entier.
+### module-ownership
 
-Cette convention exprime une décision architecturale par le nom : elle ne prouve
-pas la cohérence métier du dossier. Un hook dans `data-access/` consommé depuis
-une autre fonctionnalité reste donc dans `data-access/`. Un hook privé placé à
-la racine de sa fonctionnalité est, lui, rapproché de son composant consommateur.
-Renommer un dossier en kebab-case change cette interprétation.
+Checks other modules, including hooks, types, schemas, helpers, contexts and
+encapsulated module folders. Type imports count as consumers. A grouping folder's
+`index.*` is never moved. The diagnostic points to the first statement.
 
-Les dossiers de support de test (`__tests__/`, `__fixtures__/`, `__mocks__/`,
-`__snapshots__/`) sont hors du modèle d'appartenance : leur contenu n'est ni
-propriétaire ni déplacé, seule sa colocalisation est vérifiée.
+### test-colocation
 
-L'emplacement attendu d'un fichier est l'ancêtre commun le plus proche des
-dossiers de ses propriétaires :
+Checks `*.test.*`, `*.spec.*`, `*.e2e.*`, `*.bench.*`, `*.stories.*` and files under
+`__tests__/`, `__fixtures__/`, `__mocks__/` or `__snapshots__/`. The subject is an
+imported module with the matching name: `useOrders.test.ts` → `useOrders.ts`,
+`user.service.test.ts` → `user.service.ts`, `Orders/index.test.tsx` → `Orders/`.
+Tests can live beside their subject or in one of its support subfolders.
+Without a unique subject, the rule makes no suggestion.
 
-- Un seul consommateur : sous le dossier de ce propriétaire.
-- Plusieurs consommateurs : à leur ancêtre commun le plus proche.
-- Aucun consommateur : aucune déduction.
+### no-deep-import
 
-Les tests et stories ne sont jamais propriétaires : un composant testé reste
-analysé. Les imports de types comptent pour les modules (un `types.ts` appartient
-à ceux qui l'utilisent) mais pas pour les composants, possédés par ceux qui
-les rendent.
+A component folder with an entry point, or a lowercase folder whose `index`
+re-exports files inside it, is a facade. Outside consumers must use that entry.
+The rule checks imports, re-exports and literal dynamic imports, and names the
+outermost facade being crossed. Descendants of the folder, tests, test support
+files behind the facade and folders without an entry are exempt.
 
-```text
-Orders/
-├── index.tsx
-├── SharedBadge.tsx          # utilisé par Row et EmptyState
-├── useOrders.ts             # hook privé de Orders
-├── useOrders.test.ts        # colocalisé avec son sujet
-├── types.ts                 # types partagés par Table et EmptyState
-├── Table/
-│   ├── index.tsx
-│   ├── columns.tsx          # agit pour Table
-│   └── Row/
-│       ├── index.tsx
-│       └── Menu/
-│           ├── index.tsx
-│           └── Action.tsx
-└── EmptyState/
-    └── index.tsx
+An `index` without re-exports, such as a file-based route, does not create a
+module facade. Between packages, `package.json#exports` defines public paths;
+this rule applies boundaries inside a package.
+
+### declarative-entry
+
+An `index.ts`, `.mts`, `.js` or `.mjs` contains imports, named re-exports and
+declarative composition such as `export const router = createRouter(…)`.
+The rule reports `if`, `switch`, `try`, `throw` and loops anywhere in the file,
+as well as top-level calls and `await`. Component `index.tsx` files are exempt.
+A package's root entry without an `exports` field is treated as a program and
+is also exempt.
+
+### no-nested-jsx-map
+
+Reports `.map` or `.flatMap` inside another map callback in rendered JSX.
+Extract the inner list into its own component. Adjacent lists and lists computed
+outside JSX are exempt.
+
+### no-catch-all-module
+
+Reports `utils`, `util`, `helpers`, `helper`, `misc` and `common`, including
+suffixes such as `string-helpers.ts`. Give the module the name of its responsibility.
+Tests follow their subject and are exempt. `names` replaces the default list;
+`allow` lists tolerated path suffixes, for example a generated shadcn file:
+
+```json
+{
+  "code-rules/no-catch-all-module": ["warn", { "allow": ["lib/utils.ts"] }]
+}
 ```
 
-Les règles ne demandent pas de créer un `index.tsx`, ne déplacent aucun fichier
-et ne réécrivent aucun import. Elles utilisent les imports comme indication
-d'appartenance, sans prétendre déterminer les frontières métier. Chaque message
-nomme le fichier, l'emplacement attendu et ses consommateurs ; au-delà de quatre,
-il en cite trois et compte les autres. Une chaîne à plat peut demander plusieurs
-passes : déplacer le propriétaire modifie
-l'emplacement de ses enfants. Les tests couvrent cinq niveaux de convergence
-et six niveaux de branches, dont des composants partagés à un ancêtre
-intermédiaire.
+### no-enum
 
-## component-ownership
+Reports TypeScript `enum` declarations, including `const enum`.
+Prefer a union of literals.
 
-Signale les fichiers PascalCase `.tsx` et `.jsx` contenant du JSX, et les
-dossiers composants (`Child/` est signalé via `Child/index.tsx`), placés ailleurs
-qu'à l'emplacement attendu. Le diagnostic est ancré sur le premier JSX.
+## How ownership works
 
-## module-ownership
+The graph identifies owners from the source tree and its imports:
 
-Signale les autres modules : hooks, types, schémas, helpers, contextes, et les
-dossiers de modules encapsulés. Un `index.*` de simple regroupement n'est jamais
-déplacé. Le diagnostic est ancré sur la première instruction.
+- A standalone PascalCase component owns its proposed component folder.
+- A component folder owns its contents.
+- A module folder with an `index.ts` owns its contents when outside consumers use
+  only that entry. Deep imports make it a grouping folder instead.
+- A standalone module inside an owner acts for that owner without creating a folder.
+- Wiring outside an owner, such as `main.tsx` or a route registry, does not own
+  its imports and does not suggest moving them.
 
-## test-colocation
+One owner means a private file belongs under that owner. Multiple owners mean it
+belongs at their nearest common ancestor. No consumers means no placement inference.
+Tests and stories never own components or modules.
 
-Signale un fichier `*.test.*`, `*.spec.*`, `*.e2e.*`, `*.bench.*`, `*.stories.*`
-ou situé sous `__tests__/`, `__fixtures__/`, `__mocks__/` ou `__snapshots__/`
-qui n'est pas à côté de son sujet. Le sujet est le module importé portant le
-même nom (`useOrders.test.ts` → `useOrders.ts`, `user.service.test.ts` →
-`user.service.ts`, `Orders/index.test.tsx` → `Orders/`). Le test peut vivre dans
-le dossier du sujet ou dans l'un de ces sous-dossiers de support. Sans sujet
-unique, aucune déduction.
+Lowercase folders such as `command-palette/`, `data-access/`, `reorder/` and
+`_shared/` define grouping boundaries. After an optional `_`, the name starts
+with a lowercase letter and contains lowercase letters, digits and hyphens
+between nonempty segments. PascalCase folders remain subject to ownership.
 
-## no-deep-import
+The nearest grouping boundary applies. Outside consumers count at that boundary's
+root, so a feature stays in its own folder. A deeply nested file used from outside
+must move up to that root. Private children remain checked at every depth, and
+tests remain colocated even across a boundary. A grouping entry point never
+causes the entire group to move.
 
-Un dossier composant avec une entrée (`Orders/index.tsx`, `Orders/Orders.tsx`),
-ou un dossier en minuscules dont l'`index` réexporte depuis le dossier, est une
-façade : depuis l'extérieur, on l'importe par cette entrée, jamais par ses autres
-fichiers. Un `index` qui ne réexporte rien, comme la route `/` d'un dossier
-`routes/`, n'en fait pas une façade. La règle signale l'import, la réexportation ou l'`import()` littéral qui
-entre dans un tel dossier, et nomme le dossier **le plus englobant** à franchir :
-`main.ts` qui importe `orders/parsing/codec.ts` doit passer par `orders/index.ts`.
-Les descendants du dossier, les tests, les fichiers de support de test derrière
-la façade et les dossiers sans entrée ne sont pas concernés. Entre packages, les sous-chemins de `package.json#exports` jouent ce
-rôle ; cette règle l'applique à l'intérieur d'un package. Un dossier percé est
-traité par `module-ownership` comme un simple regroupement : corriger ses imports
-profonds le rend à nouveau propriétaire de son contenu.
+Folder names express an architectural decision; they do not prove domain cohesion.
+Renaming a folder to kebab-case changes its interpretation. Test support folders
+are outside the ownership model: only their colocation is checked.
 
-## declarative-entry
+## Roots and monorepos
 
-Un `index.ts` (`.mts`, `.js`, `.mjs`) se limite à des imports, des réexportations
-nommées et des compositions déclaratives (`export const router = createRouter(…)`).
-La règle signale tout `if`, `switch`, `try`, `throw` ou boucle, où qu'il soit dans
-le fichier, ainsi que les appels et `await` au niveau du module. Les `index.tsx`
-de composants ne sont pas concernés. L'`index` racine d'un package **sans
-`exports`** est le programme lui-même, pas une façade : il n'est pas vérifié.
+By default, each file is analyzed within the nearest package's `src/`, or the
+package itself if it has no `src/`. A workspace root with `workspaces` but no
+`src/` is skipped. One configuration can cover a monorepo; files outside the
+selected `src/` are not analyzed.
 
-## no-nested-jsx-map
+To choose a root explicitly, pass `root` to an ownership rule:
 
-Dans du JSX rendu, un `.map` (ou `.flatMap`) à l'intérieur du rappel d'un autre
-`.map` est signalé : la liste intérieure devient son propre composant. Deux
-listes voisines, ou une liste calculée hors JSX, ne sont pas concernées.
+```json
+{
+  "code-rules/component-ownership": ["warn", { "root": "src" }]
+}
+```
 
-## no-catch-all-module
+The root is absolute or relative to the linter's working directory. Include
+**all consumers** in the chosen scope. Oxlint diagnostic exclusions do not shrink
+the graph: an ignored file can still consume a module.
 
-Un fichier nommé `utils`, `util`, `helpers`, `helper`, `misc` ou `common`, seul ou
-en suffixe (`string-helpers.ts`), est signalé : un module porte le nom de sa seule
-responsabilité. Options : `names` remplace la liste, `allow` énumère des fins de
-chemin tolérées (`["lib/utils.ts"]` pour le fichier généré par shadcn). Les tests
-suivent leur sujet et ne sont pas signalés.
+## Resolution and limits
 
-## no-enum
+Oxc resolves `tsconfig` aliases, `.js` imports pointing to TypeScript, conditional
+`exports` (`node`, `import`) and literal dynamic imports. Protocol imports such
+as `node:`, `bun:`, `cloudflare:` and `virtual:` are external.
 
-Toute déclaration `enum`, `const enum` compris, est signalée : préférer une union
-de littéraux.
+Re-exported files and source targets of `package.json#exports` are protected.
+Ownership cycles receive no suggestion. A type re-export protects a type module,
+but not the component declaring those types. Unresolved type-only links do not
+suspend analysis. A root `index.*` wires the package without owning its imports.
 
-## Résolution et limites
+When the graph is incomplete because of a parse error, an unresolved code import,
+a computed dynamic import, `require` or a computed `import.meta` call, each enabled
+ownership rule explains once why analysis is suspended. Common generated folders
+(`node_modules`, `.git`, `.moon`, `dist`, `build`, `coverage`, `paraglide`) and
+`.d.ts` files are excluded. Symlinks are not followed. PascalCase `.tsx` files
+without JSX receive no diagnostic.
 
-Les alias `tsconfig`, les imports `.js` vers TypeScript, les `exports`
-conditionnels (`node`, `import`) et les imports dynamiques à chaîne littérale
-sont résolus avec Oxc. Les spécificateurs à protocole (`node:`, `bun:`,
-`cloudflare:`, `virtual:`) sont externes. Les fichiers réexportés et les cibles
-source de `package.json#exports` sont protégés. Les fichiers impliqués dans un
-cycle d'appartenance ne reçoivent pas de suggestion. Un `export type` protège
-un module de types, mais pas le composant qui déclare ces types. Les liens de
-type non résolus (fichiers `.d.ts`, packages sans code) ne suspendent pas
-l'analyse. Un `index.*` à la racine câble le package sans posséder ce qu'il
-importe.
+Placement suggestions can take several passes: moving an owner changes the
+expected location of its children. Messages include the file, expected location
+and consumers; beyond four consumers they show three and count the rest.
 
-Si le graphe ne peut être établi (erreur de parsing, import de code non résolu,
-import dynamique calculé, `require` ou appel `import.meta` calculé), chaque règle
-activée explique une fois pourquoi l'analyse du périmètre est suspendue. Les
-dossiers générés usuels (`node_modules`, `.git`, `.moon`, `dist`, `build`,
-`coverage`, `paraglide`) et les fichiers `.d.ts` sont exclus ; les liens
-symboliques ne sont pas suivis. Un fichier PascalCase `.tsx` sans JSX n'est
-signalé par aucune règle.
+## Performance and editor support
 
-## Performance et cache
+The plugin uses `createOnce`, targeted visitors and `before` to skip files without
+diagnostics. Rules share file resolution and an import graph built from Oxc's ESM
+summary; an extra AST is created only for computed imports or non-ESM forms.
 
-L'implémentation utilise `createOnce`, des visiteurs ciblés et le retour `false`
-de `before` pour les fichiers sans diagnostic. Oxlint exécutant toutes les règles
-d'un fichier à la suite, la résolution du fichier est partagée entre les règles. Le graphe utilise le résumé ESM
-du parseur Oxc ; un AST supplémentaire n'est matérialisé que pour examiner les
-imports calculés ou les formes non-ESM.
+The cache is shared within a synchronous batch. Between batches, file, directory
+and ancestor JSON configuration metadata are checked again. Changes trigger
+reparsing; current-buffer edits also invalidate the graph. The cache holds at
+most 64 roots, with no persistent watcher or disk cache.
 
-Le cache est partagé pendant un lot synchrone. Entre les lots, les métadonnées
-des fichiers, dossiers et configurations JSON ancêtres sont revérifiées ; seules
-leurs modifications entraînent un nouveau parsing. Une modification du texte
-courant invalide également le graphe. Le cache est borné à 64 racines.
-Il n'y a ni watcher permanent ni cache disque. Le texte courant fourni
-par Oxlint est pris en compte ; les autres fichiers sont lus sur disque.
-Les modifications non enregistrées dans d'autres buffers d'éditeur ne sont donc
-pas disponibles. Les configurations étendues situées hors de la racine et de ses
-dossiers ancêtres nécessitent un redémarrage du linter après modification.
-Un test avec le vrai serveur `oxlint --lsp` vérifie l'ouverture, les modifications
-du buffer courant et l'ajout d'un consommateur enregistré. Une modification dans
-un autre fichier prend effet au prochain lint du composant : le plugin ne demande
-pas lui-même au serveur de relinter ses dépendants.
+Oxlint's current buffer is used; other files are read from disk. Unsaved edits in
+other buffers are unavailable. Changes to extended configurations outside the
+root and its ancestors require a linter restart. A real `oxlint --lsp` test covers
+opening a file, editing its buffer and adding a saved consumer. Changes in another
+file take effect at the component's next lint; the plugin does not request that
+Oxlint relint dependents.
 
-Le benchmark lance réellement Oxlint sur 6 400 fichiers répartis en arbres
-à six niveaux. Après une chauffe, cinq exécutions alternent avec et sans les
-trois règles. Il vérifie les diagnostics, publie les mesures dans `bench/results.json`
-et impose un budget local de 1 000 ms en médiane. Ce budget dépend de la machine
-et ne constitue pas une mesure du lint complet de Notom.
+The benchmark runs Oxlint on 6,400 files in six-level trees. After warmup, five
+runs alternate with and without the three ownership rules. It checks diagnostics,
+writes `bench/results.json` and enforces a local median budget of 1,000 ms.
+That budget depends on the machine; it is not a published throughput guarantee.
 
-## Développement
+## Development
 
 ```sh
 bun install --ignore-scripts
@@ -266,40 +254,38 @@ moon run code-rules:format
 moon run code-rules:benchmark
 ```
 
-Moon requiert un historique Git initialisé. Les commandes CLI sous-jacentes
-sont déclarées dans `moon.yml`.
-Les tests utilisent `node:test`, le `RuleTester` officiel d'Oxlint et le binaire
-réel. Chaque fixture crée un dossier temporaire nettoyé après son test.
-Un test crée aussi l'archive, l'installe dans un projet temporaire et charge le
-plugin par son nom de package.
+Moon requires initialized Git history. Underlying commands are in `moon.yml`.
+Tests use `node:test`, Oxlint's official `RuleTester` and the real binary. Fixtures
+create temporary folders that are cleaned up after each test. A packaging test
+installs the archive into a temporary project and loads the plugin by package name.
 
-La CI GitHub Actions exécute tests, lint et format sur Node 20, 22 et 24.
-Le `RuleTester` d'Oxlint exige Node 22 ; sous Node 20, sa suite est ignorée et
-seuls les tests avec le binaire réel s'exécutent.
+CI checks tests, lint and formatting on Node 20, 22 and 24. Oxlint's `RuleTester`
+requires Node 22; Node 20 skips that suite and runs the real-binary tests.
 
-### Publication
+### Release
 
-1. Mettre à jour `version` dans `package.json` et `meta.version` dans
-   `src/index.js` (un test vérifie leur cohérence).
-2. Committer, puis pousser un tag `v<version>` : `git tag v0.2.0 && git push origin v0.2.0`.
-3. Le workflow `Release` vérifie que le tag correspond à la version, rejoue les
-   contrôles, publie sur npm avec provenance et crée la release GitHub.
+1. Update `version` in `package.json` and `meta.version` in `src/index.js`.
+2. Commit and push a matching `v<version>` tag.
+3. The Release workflow checks the tag, runs validation, publishes to npm with
+   provenance and creates the GitHub release.
 
-La publication utilise le trusted publishing npm (OIDC) s'il est configuré pour
-ce dépôt sur npmjs.com, sinon le secret de dépôt `NPM_TOKEN`.
+Publishing uses npm trusted publishing (OIDC) when configured, or the repository's
+`NPM_TOKEN` secret. Dependencies are pinned. Compatibility is tested with Oxlint
+1.85.0 and 1.86.0; its JavaScript plugin API is still alpha.
 
-Les dépendances sont épinglées. Compatibilité testée avec Oxlint 1.85.0 et 1.86.0 ; son API
-de plugins JavaScript est encore alpha. L'export par défaut du point d'entrée est
-le format attendu par Oxlint ; les modules internes utilisent des exports nommés.
-Ajouter les futures règles séparément sous `src/rules/`, sans les activer
-implicitement et sans dupliquer les règles natives d'Oxlint.
+The default entry export is Oxlint's expected plugin format; internal modules use
+named exports. Add rules separately in `src/rules/`, without implicit activation
+or duplicating native Oxlint rules.
 
-## Références
+## References
 
-- [Configuration des plugins JavaScript](https://oxc.rs/docs/guide/usage/linter/js-plugins.html)
-- [API, createOnce, before et RuleTester](https://oxc.rs/docs/guide/usage/linter/writing-js-plugins.html)
-- [Analyse multi-fichiers native](https://oxc.rs/docs/guide/usage/linter/multi-file-analysis)
+- [JavaScript plugin configuration](https://oxc.rs/docs/guide/usage/linter/js-plugins.html)
+- [Plugin API, createOnce, before and RuleTester](https://oxc.rs/docs/guide/usage/linter/writing-js-plugins.html)
+- [Native multi-file analysis](https://oxc.rs/docs/guide/usage/linter/multi-file-analysis)
 
-Les recommandations de cache du package sont notre choix d'implémentation,
-pas une garantie de cycle de vie fournie par l'API Oxlint. Le benchmark doit
-être relancé lors d'une mise à jour du moteur.
+The caching approach is an implementation choice, not an Oxlint lifecycle guarantee.
+Rerun the benchmark when upgrading the engine.
+
+## License
+
+[MIT](LICENSE) — Guillaume Bastianelli.
