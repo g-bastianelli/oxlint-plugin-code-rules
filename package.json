@@ -1,15 +1,22 @@
 {
   "name": "oxlint-plugin-code-rules",
   "version": "0.4.0",
-  "description": "Import-graph ownership rules for Oxlint: components, modules and tests live under their owner.",
+  "description": "Give every file a home. Oxlint rules for React and TypeScript architecture: component ownership, test colocation and module boundaries.",
   "keywords": [
     "architecture",
     "code-organization",
     "colocation",
+    "component-ownership",
+    "import-graph",
     "lint",
+    "linter",
+    "module-boundaries",
     "oxlint",
     "oxlint-plugin",
-    "react"
+    "react",
+    "static-analysis",
+    "test-colocation",
+    "typescript"
   ],
   "homepage": "https://github.com/g-bastianelli/oxlint-plugin-code-rules#readme",
   "bugs": {
@@ -24,6 +31,7 @@
   "files": [
     "src",
     "README.md",
+    "docs/assets/banner.svg",
     "CHANGELOG.md",
     "LICENSE"
   ],
